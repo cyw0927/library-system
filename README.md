@@ -2,7 +2,7 @@
 
 GitHub `cyw0927/library`의 Markdown 자료를 읽기 전용으로 수집하고 구조화·검색·검증하기 위한 개인 전자도서관입니다. 앱 코드는 `cyw0927/library-system`에서 관리합니다.
 
-현재 구현 범위는 **Phase 1 — Foundation**입니다. GitHub는 원본이며 PostgreSQL은 향후 검색·분석용 파생 데이터 저장소로 사용합니다.
+현재 **Phase 1 — Foundation**과 **Phase 2 — Core Database**를 구현했습니다. GitHub는 원본이며 PostgreSQL은 검색·분석용 파생 데이터 저장소로 사용합니다. 원본 데이터 수집은 다음 단계입니다.
 
 ## 구조와 구현 상태
 
@@ -22,7 +22,9 @@ app/
   api/          # /health, /health/db
   core/         # 환경 설정, logging
   db/           # SQLAlchemy Base, engine, request session
-alembic/        # migration 환경 (현재 도서 테이블 없음)
+    models/     # Book, Volume, Chapter, Paragraph, SyncState
+alembic/        # migration 환경
+  versions/     # 0001_core_library
 tests/          # 단위 테스트
   integration/  # 실제 PostgreSQL, Alembic, Uvicorn HTTP 테스트
 .github/workflows/tests.yml
@@ -35,7 +37,8 @@ tests/          # 단위 테스트
 - [x] GET /health
 - [x] GET /health/db: 실제 SELECT 1, 실패 시 503
 - [x] pytest 및 PostgreSQL CI 검사 구성
-- [ ] Phase 2: Book, Volume, Chapter, Paragraph, SyncState
+- [x] Phase 2: Book, Volume, Chapter, Paragraph, SyncState 및 첫 migration
+- [x] 외래 키·유일성·수치 범위 검사, nullable volume, soft delete 필드
 - [ ] GitHub Sync → Parser → Reader → Search → QA
 - [ ] 독서 기능 → 분석 → AI RAG
 
@@ -92,7 +95,25 @@ DATABASE_TIMEOUT_SECONDS=5
 .\.venv\Scripts\python.exe -m alembic check
 ```
 
-Phase 1에는 도서 모델과 revision이 없습니다. 위 명령은 실제 DB 연결과 migration 환경을 검증하며 Alembic의 버전 관리 테이블만 생성할 수 있습니다. Phase 2 지시를 받은 뒤 모델과 첫 revision을 추가합니다.
+첫 revision `0001_core_library`는 `books`, `volumes`, `chapters`, `paragraphs`, `sync_state`를 생성합니다. `alembic check`는 ORM 모델과 실제 schema의 차이가 없는지 검사합니다. 앱 시작 시 `create_all()`을 실행하지 않으며 스키마 변경은 Alembic으로 관리합니다.
+
+## Core Database
+
+| 테이블 | 역할 | 주요 제약조건 |
+|---|---|---|
+| books | 작품·시리즈 메타데이터 | slug, GitHub path 각각 유일 |
+| volumes | 작품 내 권 | 작품 내 slug 유일, GitHub path 유일 |
+| chapters | 장·원본 Markdown·SHA | volume nullable, GitHub path 유일 |
+| paragraphs | 장 내 문단·검색용 plain text | 장 내 문단 번호 유일, 번호는 1부터 |
+| sync_state | 파일별 SHA·동기화 상태 | GitHub path 유일 |
+
+장에는 필수 `book_id`와 선택 `volume_id`가 있습니다. 복합 외래 키로 장과 권이 같은 작품에 속하도록 강제합니다. ORM에서 다권 장을 만들 때는 `Chapter(book=book, volume=volume, ...)`처럼 두 관계를 함께 지정합니다. `chapter_number`는 서문 등 번호 없는 장을 위해 nullable이며, 0은 프롤로그 등에 사용할 수 있습니다.
+
+Book·Volume·Chapter의 `is_active`는 soft delete 용도입니다. 참조 중인 작품·권의 실제 삭제는 DB가 거부합니다. 장을 실제로 삭제하면 그 장의 파생 문단만 cascade 삭제됩니다. 동기화에서는 soft delete를 기본으로 사용하며, 상하위 active 상태 조정은 향후 Sync 서비스가 담당합니다.
+
+생성·수정 시각은 timezone-aware 필드입니다. `updated_at`은 ORM update 시 갱신됩니다. `sort_order`로 권과 장을 정렬하고, 장의 이전/다음은 이후 Reader 단계에서 계산합니다. `paragraph_count`·`char_count`는 파생 값이며 Sync/Parser가 저장 시 계산해야 합니다. 현재 데이터 import나 자동 계산 서비스는 없습니다.
+
+SyncState 상태는 `pending`, `synced`, `error`, `deactivated`입니다. 처음 실패한 파일·README 메타데이터도 추적할 수 있도록 `entity_id`와 `last_synced_at`은 nullable입니다. `entity_type` + `entity_id`는 다형적 참조여서 물리적 외래 키를 두지 않으며, 다음 Sync 단계에서 대상 검증을 구현합니다.
 
 ## 실행과 API
 
@@ -113,17 +134,17 @@ Phase 1에는 도서 모델과 revision이 없습니다. 위 명령은 실제 DB
 .\.venv\Scripts\python.exe -m pytest -ra
 ```
 
-일반 테스트는 SQLite 세션을 주입하여 API 성공·실패, 설정 검증, 세션 정리와 롤백을 검사합니다. 테스트 DB를 지정하지 않으면 PostgreSQL 통합 테스트 2개는 명시적으로 skip됩니다.
+일반 테스트는 SQLite 세션으로 API 성공·실패, 설정, 세션 롤백과 모델 무결성을 검사합니다. 같은 모델 무결성 검사를 실제 PostgreSQL에서도 실행합니다. `TEST_DATABASE_URL`을 지정하지 않으면 PostgreSQL 전용 검사는 명시적으로 skip됩니다.
 
-실제 PostgreSQL 통합 테스트에는 **전용 테스트 DB**를 사용합니다. 개발/운영 DB를 사용하지 마세요. Alembic이 버전 테이블을 만들 수 있습니다.
+실제 PostgreSQL 통합 테스트에는 **전용 테스트 DB**를 사용합니다. 개발/운영 DB를 사용하지 마세요. 테스트는 Alembic으로 핵심 테이블을 생성하며 데이터 변경은 테스트별 transaction으로 rollback합니다. Migration 되돌리기 검사는 새 임시 schema 안에서만 실행하고 schema 생성 자체도 rollback합니다. `downgrade base`는 도서 테이블을 제거하므로 실제 데이터가 있는 DB에서 실행하지 마세요.
 
 ```powershell
 $env:TEST_DATABASE_URL = "postgresql+psycopg://library_test:your-password@127.0.0.1:5432/library_app_test"
 .\.venv\Scripts\python.exe -m pytest -ra -s
 ```
 
-GitHub Actions는 Python 3.11/3.12와 PostgreSQL 18에서 전체 테스트를 실행합니다. CI는 URL 인코딩된 비밀번호, `alembic upgrade head`, 실제 Uvicorn 기동, HTTP `/health`·`/health/db` 응답을 확인합니다. CI 코드에는 임시 테스트 서비스 전용 비밀번호만 포함됩니다.
+GitHub Actions는 Python 3.11/3.12와 PostgreSQL 18에서 migration 적용, 모델/schema 일치, DB 제약조건, migration 왕복, 실제 Uvicorn 기동 및 `/health`·`/health/db` 응답을 확인합니다. CI 코드에는 임시 테스트 서비스 전용 비밀번호만 포함됩니다.
 
 ## 개발 단계
 
-Phase 1 검증 후 사용자의 다음 지시가 있을 때 Phase 2의 핵심 모델과 migration을 구현합니다. 이후 Sync, Markdown Parser, 데이터 매핑·Import, Reader API, 검색, Streamlit, QA 순으로 진행합니다. AI RAG는 마지막 단계입니다.
+다음은 **Phase 3 — GitHub Tree Sync**입니다. 사용자 지시 후 저장소 tree·Markdown 파일 탐색·SHA 추적을 구현합니다. 이후 Markdown Parser, 데이터 매핑·Import, Reader API, 검색, Streamlit, QA 순으로 진행합니다. AI RAG는 마지막 단계입니다.

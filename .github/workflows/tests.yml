@@ -1,4 +1,4 @@
-name: Phase 1 foundation tests
+name: Library backend tests
 
 on:
   push:
@@ -47,5 +47,9 @@ jobs:
         run: python -m pip install -e . -r requirements-dev.txt
       - name: Check dependencies
         run: python -m pip check
+      - name: Apply migrations
+        run: python -m alembic upgrade head
+      - name: Verify model and migration consistency
+        run: python -m alembic check
       - name: Run unit and PostgreSQL integration tests
         run: python -m pytest -ra -s
