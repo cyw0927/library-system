@@ -8,7 +8,7 @@ import streamlit as st
 from frontend import client as api
 
 st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
-PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Sync"]
+PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Analysis", "Sync"]
 
 
 def number_param(name, default=None):
@@ -218,6 +218,31 @@ def reading_page():
                 st.rerun()
 
 
+def analysis_page():
+    st.title("텍스트 분석")
+    overall = api.get("/analysis/overview")
+    columns = st.columns(4)
+    for column, label, key in zip(columns, ["작품", "장", "문단", "글자"], ["total_books", "total_chapters", "total_paragraphs", "total_characters"]):
+        column.metric(label, f'{overall[key]:,}')
+    book = book_picker()
+    result = api.get(f'/analysis/books/{book["id"]}')
+    st.write(f'평균 장 길이: {result["average_chapter_characters"]:,.0f}자 · 평균 문장 길이(추정): {result["average_sentence_characters"]:,.1f}자')
+    st.subheader("장 길이")
+    if result["chapter_lengths"]:
+        st.bar_chart(result["chapter_lengths"], x="title", y="characters")
+    st.subheader("명시적 POV별 장 수")
+    if result["pov_counts"]:
+        st.bar_chart(result["pov_counts"], x="pov", y="chapters")
+    else:
+        st.info("파일명에 명시된 POV가 없습니다. 별칭에서 인물을 추측하지 않습니다.")
+    st.subheader("등록 용어·인물 언급")
+    st.dataframe(result["term_mentions"], hide_index=True)
+    st.subheader("반복 어절 후보")
+    st.dataframe(result["term_candidates"], hide_index=True)
+    with st.expander("집계 방법과 한계"):
+        st.json(result["methods"])
+
+
 def sync_page():
     st.title("GitHub 동기화")
     st.warning("GitHub → DB 읽기 전용 동기화입니다. 원본을 commit하거나 push하지 않습니다.")
@@ -233,6 +258,6 @@ requested = st.query_params.get("page", "Library")
 page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav")
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
-     "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Sync": sync_page}[page]()
+     "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Sync": sync_page}[page]()
 except api.APIError as exc:
     st.error(str(exc))
