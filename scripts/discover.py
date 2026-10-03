@@ -9,7 +9,7 @@ from app.services.github_client import GitHubClient
 def main():
     settings = get_settings()
     source = GitHubClient(settings.github_repository, settings.github_branch, settings.github_token,
-                          settings.github_cache_dir)
+                          settings.github_cache_dir, use_git_credentials=settings.github_use_git_credentials)
     try:
         snapshot = source.snapshot()
         with get_session_factory()() as session:

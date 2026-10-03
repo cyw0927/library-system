@@ -18,12 +18,14 @@ def status(db: DB):
 @router.post("/sync/github")
 def sync(db: DB):
     settings = get_settings()
-    source = GitHubClient(settings.github_repository, settings.github_branch, settings.github_token, settings.github_cache_dir)
     try:
-        return run_sync(db, source)
+        source = GitHubClient(settings.github_repository, settings.github_branch, settings.github_token, settings.github_cache_dir,
+                              use_git_credentials=settings.github_use_git_credentials)
+        try:
+            return run_sync(db, source)
+        finally:
+            source.close()
     except GitHubError as exc:
         raise HTTPException(502, str(exc)) from None
     except SyncBusy as exc:
         raise HTTPException(409, str(exc)) from None
-    finally:
-        source.close()

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     github_branch: str = "main"
     github_token: str = Field(default="", repr=False)
     github_cache_dir: str = ""
+    github_use_git_credentials: bool = False
     admin_token: str = Field(default="", repr=False)
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = ""
