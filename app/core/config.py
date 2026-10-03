@@ -15,6 +15,11 @@ class Settings(BaseSettings):
         repr=False,
     )
     database_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    github_repository: str = "cyw0927/library"
+    github_branch: str = "main"
+    github_token: str = Field(default="", repr=False)
+    github_cache_dir: str = ""
+    admin_token: str = Field(default="", repr=False)
 
     model_config = SettingsConfigDict(
         env_file=".env",
