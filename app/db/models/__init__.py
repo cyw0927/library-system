@@ -5,6 +5,6 @@ from app.db.models.volume import Volume
 from app.db.models.chapter import Chapter
 from app.db.models.paragraph import Paragraph
 from app.db.models.sync_state import SyncState
+from app.db.models.source import SourceDocument, SyncRun
 
-__all__ = ["Book", "Volume", "Chapter", "Paragraph", "SyncState"]
-
+__all__ = ["Book", "Volume", "Chapter", "Paragraph", "SyncState", "SourceDocument", "SyncRun"]

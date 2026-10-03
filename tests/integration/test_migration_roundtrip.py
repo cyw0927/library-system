@@ -11,7 +11,10 @@ from sqlalchemy.schema import CreateSchema
 ROOT = Path(__file__).resolve().parents[2]
 DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="TEST_DATABASE_URL is not configured")
-TABLES = {"books", "volumes", "chapters", "paragraphs", "sync_state", "alembic_version"}
+from app.db.base import Base
+import app.db.models  # noqa: F401
+
+TABLES = set(Base.metadata.tables) | {"alembic_version"}
 
 
 def test_upgrade_downgrade_upgrade_in_isolated_schema():

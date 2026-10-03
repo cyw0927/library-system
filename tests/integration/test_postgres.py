@@ -31,10 +31,8 @@ def test_alembic_upgrade_and_percent_encoded_password(monkeypatch):
         try:
             with engine.connect() as connection:
                 assert connection.scalar(text("SELECT 1")) == 1
-            assert set(inspect(engine).get_table_names()) == {
-                "books", "volumes", "chapters", "paragraphs", "sync_state",
-                "alembic_version",
-            }
+            from app.db.base import Base
+            assert set(inspect(engine).get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
         finally:
             engine.dispose()
     finally:
