@@ -8,7 +8,7 @@ import streamlit as st
 from frontend import client as api
 
 st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
-PAGES = ["Library", "Book", "Reader", "Search"]
+PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Sync"]
 
 
 def number_param(name, default=None):
@@ -126,9 +126,76 @@ def search_page():
                 st.button("문단 읽기", key=f'result-{item["paragraph_id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": item["chapter_id"], "paragraph": item["paragraph_number"]})
 
 
+def qa_page():
+    st.title("번역 QA")
+    st.caption("구조·Markdown·내비게이션·파일명·용어·중복을 검사합니다. 원본을 자동 수정하지 않습니다.")
+    books = api.get("/books")
+    book_id = st.selectbox("검사 작품", [None] + [b["id"] for b in books], format_func=lambda v: "전체" if v is None else next(b["title"] for b in books if b["id"] == v))
+    if st.button("QA 실행"):
+        with st.spinner("검사 중"):
+            st.success(api.post("/qa/run", book_id=book_id))
+    severity = st.selectbox("심각도", [None, "ERROR", "WARNING", "INFO"], format_func=lambda v: v or "전체")
+    resolved = st.toggle("해결한 항목 보기", False)
+    page = st.number_input("문제 페이지", 1, value=1)
+    result = api.get("/qa/issues", book_id=book_id, severity=severity, resolved=resolved, offset=(page - 1) * 50)
+    st.write(f'{result["total"]:,}건')
+    for issue in result["results"]:
+        with st.container(border=True):
+            st.write(f'{issue["severity"]} · {issue["issue_type"]} · {issue["chapter_title"]}')
+            st.write(issue["message"])
+            st.caption(issue["source_path"] + (f' / §{issue["paragraph_number"]}' if issue["paragraph_number"] else ""))
+            if issue["detected_value"]:
+                st.write(f'발견: {issue["detected_value"]} → 기준: {issue["expected_value"] or "수동 검토"}')
+            st.button("문제 위치 읽기", key=f'qa-read-{issue["id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": issue["chapter_id"], "paragraph": issue["paragraph_number"]})
+            if st.button("다시 열기" if resolved else "검토 완료", key=f'qa-resolve-{issue["id"]}'):
+                api.request("PATCH", f'/qa/issues/{issue["id"]}', body={"resolved": not resolved})
+                st.rerun()
+
+
+def terms_page():
+    st.title("표준 용어")
+    books = api.get("/books")
+    categories = ["person", "place", "organization", "title", "ship", "concept", "house", "event"]
+    with st.form("new-term"):
+        canonical = st.text_input("표준 표기")
+        variants = st.text_area("다른 표기 (한 줄에 하나)")
+        category = st.selectbox("분류", categories)
+        book_id = st.selectbox("적용 작품", [None] + [b["id"] for b in books], format_func=lambda v: "전체 작품" if v is None else next(b["title"] for b in books if b["id"] == v))
+        description = st.text_area("설명")
+        if st.form_submit_button("용어 등록"):
+            api.post("/terms", canonical=canonical, variants=variants.splitlines(), category=category, book_id=book_id, description=description)
+            st.rerun()
+    for term in api.get("/terms"):
+        with st.expander(f'{term["canonical"]} · {term["category"]}'):
+            with st.form(f'edit-term-{term["id"]}'):
+                updated = st.text_input("표준 표기", term["canonical"])
+                aliases = st.text_area("다른 표기", "\n".join(term["variants"]))
+                note = st.text_area("설명", term["description"] or "")
+                if st.form_submit_button("저장"):
+                    api.request("PUT", f'/terms/{term["id"]}', body=dict(canonical=updated, variants=aliases.splitlines(), category=term["category"], book_id=term["book_id"], description=note))
+                    st.rerun()
+            confirm = st.checkbox("이 용어를 삭제합니다", key=f'term-confirm-{term["id"]}')
+            if st.button("삭제", key=f'term-delete-{term["id"]}', disabled=not confirm):
+                api.request("DELETE", f'/terms/{term["id"]}')
+                st.rerun()
+    st.caption("용어를 바꾼 뒤 QA를 다시 실행하면 새 기준으로 검사합니다.")
+
+
+def sync_page():
+    st.title("GitHub 동기화")
+    st.warning("GitHub → DB 읽기 전용 동기화입니다. 원본을 commit하거나 push하지 않습니다.")
+    if st.button("변경 파일 동기화"):
+        with st.spinner("동기화 중 — 실행 중에는 다시 요청하지 마세요"):
+            st.json(api.post("/sync/github"))
+    for run in api.get("/sync/status"):
+        with st.expander(f'{run["id"]} · {run["status"]} · {run["started_at"]}'):
+            st.json(run)
+
+
 requested = st.query_params.get("page", "Library")
 page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav")
 try:
-    {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page}[page]()
+    {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
+     "QA": qa_page, "Terms": terms_page, "Sync": sync_page}[page]()
 except api.APIError as exc:
     st.error(str(exc))

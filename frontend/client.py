@@ -19,7 +19,7 @@ def request(method, path, params=None, body=None):
             except ValueError:
                 detail = "API 요청 실패"
             raise APIError(f"{response.status_code}: {detail}")
-        return response.json()
+        return response.json() if response.status_code != 204 else None
     except httpx.TransportError:
         raise APIError("API 서버에 연결할 수 없습니다. FastAPI와 DB 상태를 확인하세요.") from None
 

@@ -188,6 +188,9 @@ def sync_snapshot(session: Session, source: GitHubClient, snapshot: Snapshot) ->
     for path in sorted(paths, key=natural_key):
         if is_readme(path) and "/" in path:
             parent(path)
+    if report["created"] or report["updated"] or report["deactivated"]:
+        from app.services.qa_service import run_qa
+        report["qa"] = run_qa(session)
     run.status = "partial" if report["errors"] else "completed"
     run.finished_at, run.report = datetime.now(timezone.utc), report
     session.commit()
