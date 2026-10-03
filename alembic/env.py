@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db import models  # noqa: F401 - register all tables in Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
@@ -28,7 +29,21 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def migrate_connection(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    existing_connection = config.attributes.get("connection")
+    if existing_connection is not None:
+        migrate_connection(existing_connection)
+        return
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -36,14 +51,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
+        migrate_connection(connection)
 
 
 if context.is_offline_mode():
