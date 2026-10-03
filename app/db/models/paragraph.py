@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text, UniqueConstraint, func, literal_column, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -29,3 +29,6 @@ class Paragraph(TimestampMixin, Base):
 
     chapter: Mapped[Chapter] = relationship(back_populates="paragraphs")
 
+
+Index("ix_paragraphs_search_fts", func.to_tsvector(literal_column("'simple'::regconfig"), Paragraph.plain_text),
+      postgresql_using="gin").ddl_if(dialect="postgresql")
