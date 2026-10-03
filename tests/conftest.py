@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.session import get_db
 from app.main import app
+from app.db.base import Base
 
 
 @pytest.fixture
@@ -18,6 +19,7 @@ def client() -> Iterator[TestClient]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine)
 
     def override_get_db() -> Iterator[Session]:

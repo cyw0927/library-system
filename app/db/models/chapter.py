@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     CheckConstraint, ForeignKey, ForeignKeyConstraint, Index, Integer, String,
     Text, text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 class Chapter(ActiveMixin, TimestampMixin, Base):
     __tablename__ = "chapters"
     __table_args__ = (
+        UniqueConstraint("id", "book_id", name="uq_chapters_id_book"),
         ForeignKeyConstraint(
             ["volume_id", "book_id"], ["volumes.id", "volumes.book_id"],
             name="fk_chapters_volume_book", ondelete="RESTRICT",
@@ -41,6 +43,7 @@ class Chapter(ActiveMixin, TimestampMixin, Base):
     pov: Mapped[str | None] = mapped_column(String(255))
     github_path: Mapped[str] = mapped_column(String(1024), unique=True)
     github_sha: Mapped[str] = mapped_column(String(64))
+    source_commit: Mapped[str | None] = mapped_column(String(64))
     markdown_content: Mapped[str] = mapped_column(Text)
     paragraph_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
@@ -55,4 +58,3 @@ class Chapter(ActiveMixin, TimestampMixin, Base):
         back_populates="chapter", order_by="Paragraph.paragraph_number",
         cascade="all, delete-orphan", passive_deletes=True,
     )
-
