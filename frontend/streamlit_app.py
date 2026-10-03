@@ -8,7 +8,7 @@ import streamlit as st
 from frontend import client as api
 
 st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
-PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Sync"]
+PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Sync"]
 
 
 def number_param(name, default=None):
@@ -104,6 +104,17 @@ def reader_page():
                 st.info(f'선택한 문단 §{target}')
             st.caption(f'§{paragraph["paragraph_number"]}')
             st.markdown(paragraph["markdown_content"])
+    st.divider()
+    with st.expander("독서 위치 · 북마크 · 메모"):
+        position = st.number_input("저장할 문단", min_value=1, max_value=max(1, len(paragraphs)), value=min(max(target, 1), max(1, len(paragraphs))), key=f'position-{chapter_id}')
+        completed = st.checkbox("이 장 읽기 완료", key=f'completed-{chapter_id}')
+        if st.button("독서 위치 저장"):
+            api.request("PUT", "/reading/progress", body=dict(chapter_id=chapter_id, paragraph_number=position, completed=completed))
+            st.success("저장했습니다.")
+        note = st.text_area("메모", key=f'note-{chapter_id}')
+        if st.button("북마크·메모 저장"):
+            api.post("/bookmarks", chapter_id=chapter_id, paragraph_number=position, note=note)
+            st.success("북마크를 저장했습니다.")
 
 
 def search_page():
@@ -181,6 +192,32 @@ def terms_page():
     st.caption("용어를 바꾼 뒤 QA를 다시 실행하면 새 기준으로 검사합니다.")
 
 
+def reading_page():
+    st.title("내 독서 기록")
+    page = st.number_input("기록 페이지", 1, value=1)
+    st.subheader("최근 읽은 장")
+    for record in api.get("/reading/progress", offset=(page - 1) * 50):
+        st.write(f'{record["chapter_title"]} · §{record["paragraph_number"]} · {"완료" if record["completed"] else "읽는 중"}')
+        if record["source_changed"]:
+            st.warning("저장 후 원문이 바뀌었습니다. 문단 위치를 확인해 주세요.")
+        st.button("이어 읽기", key=f'continue-{record["id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": record["chapter_id"], "paragraph": record["paragraph_number"]}, disabled=not record["chapter_active"])
+    st.subheader("북마크·메모")
+    for record in api.get("/bookmarks", offset=(page - 1) * 50):
+        with st.container(border=True):
+            st.write(f'{record["chapter_title"]} · §{record["paragraph_number"] or 1}')
+            if record["source_changed"]:
+                st.warning("원문 변경: 이 위치의 내용이 달라졌을 수 있습니다.")
+            note = st.text_area("메모", record["note"] or "", key=f'memo-{record["id"]}')
+            if st.button("메모 수정", key=f'edit-memo-{record["id"]}'):
+                api.request("PATCH", f'/bookmarks/{record["id"]}', body={"note": note})
+                st.success("저장했습니다.")
+            st.button("북마크 읽기", key=f'bookmark-read-{record["id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": record["chapter_id"], "paragraph": record["paragraph_number"]}, disabled=not record["chapter_active"])
+            confirm = st.checkbox("북마크를 삭제합니다", key=f'confirm-bookmark-{record["id"]}')
+            if st.button("삭제", key=f'delete-bookmark-{record["id"]}', disabled=not confirm):
+                api.request("DELETE", f'/bookmarks/{record["id"]}')
+                st.rerun()
+
+
 def sync_page():
     st.title("GitHub 동기화")
     st.warning("GitHub → DB 읽기 전용 동기화입니다. 원본을 commit하거나 push하지 않습니다.")
@@ -196,6 +233,6 @@ requested = st.query_params.get("page", "Library")
 page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav")
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
-     "QA": qa_page, "Terms": terms_page, "Sync": sync_page}[page]()
+     "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Sync": sync_page}[page]()
 except api.APIError as exc:
     st.error(str(exc))

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     CheckConstraint, ForeignKey, ForeignKeyConstraint, Index, Integer, String,
     Text, text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 class Chapter(ActiveMixin, TimestampMixin, Base):
     __tablename__ = "chapters"
     __table_args__ = (
+        UniqueConstraint("id", "book_id", name="uq_chapters_id_book"),
         ForeignKeyConstraint(
             ["volume_id", "book_id"], ["volumes.id", "volumes.book_id"],
             name="fk_chapters_volume_book", ondelete="RESTRICT",
