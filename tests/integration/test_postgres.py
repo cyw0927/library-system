@@ -31,8 +31,10 @@ def test_alembic_upgrade_and_percent_encoded_password(monkeypatch):
         try:
             with engine.connect() as connection:
                 assert connection.scalar(text("SELECT 1")) == 1
-            # Phase 1 must not create the Phase 2 library models.
-            assert "books" not in inspect(engine).get_table_names()
+            assert set(inspect(engine).get_table_names()) == {
+                "books", "volumes", "chapters", "paragraphs", "sync_state",
+                "alembic_version",
+            }
         finally:
             engine.dispose()
     finally:
