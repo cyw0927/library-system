@@ -41,6 +41,7 @@ class Chapter(ActiveMixin, TimestampMixin, Base):
     pov: Mapped[str | None] = mapped_column(String(255))
     github_path: Mapped[str] = mapped_column(String(1024), unique=True)
     github_sha: Mapped[str] = mapped_column(String(64))
+    source_commit: Mapped[str | None] = mapped_column(String(64))
     markdown_content: Mapped[str] = mapped_column(Text)
     paragraph_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
@@ -55,4 +56,3 @@ class Chapter(ActiveMixin, TimestampMixin, Base):
         back_populates="chapter", order_by="Paragraph.paragraph_number",
         cascade="all, delete-orphan", passive_deletes=True,
     )
-

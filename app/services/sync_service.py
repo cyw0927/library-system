@@ -93,6 +93,8 @@ def sync_snapshot(session: Session, source: GitHubClient, snapshot: Snapshot) ->
     for file in ordered:
         state = states.get(file.path)
         if state and state.github_sha == file.sha and state.sync_status == "synced":
+            if state.entity_type == "chapter":
+                session.execute(update(Chapter).where(Chapter.id == state.entity_id).values(source_commit=snapshot.commit))
             report["unchanged"] += 1
             continue
         created = state is None or state.entity_id is None
@@ -120,6 +122,7 @@ def sync_snapshot(session: Session, source: GitHubClient, snapshot: Snapshot) ->
                 entity.title = parsed.title or readable(mapped.code)
                 entity.chapter_number, entity.chapter_code, entity.pov = mapped.number, mapped.code, mapped.pov
                 entity.github_sha, entity.markdown_content = file.sha, content
+                entity.source_commit = snapshot.commit
                 entity.sort_order, entity.is_active = ordering[file.path], True
                 # Reconcile by paragraph position rather than deleting all IDs (bookmarks survive).
                 existing = {p.paragraph_number: p for p in entity.paragraphs}
