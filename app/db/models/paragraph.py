@@ -30,5 +30,7 @@ class Paragraph(TimestampMixin, Base):
     chapter: Mapped[Chapter] = relationship(back_populates="paragraphs")
 
 
-Index("ix_paragraphs_search_fts", func.to_tsvector(literal_column("'simple'::regconfig"), Paragraph.plain_text),
-      postgresql_using="gin").ddl_if(dialect="postgresql")
+Paragraph.__table__.append_constraint(
+    Index("ix_paragraphs_search_fts", func.to_tsvector(literal_column("'simple'::regconfig"), Paragraph.__table__.c.plain_text),
+          postgresql_using="gin").ddl_if(dialect="postgresql")
+)
