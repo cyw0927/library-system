@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     github_token: str = Field(default="", repr=False)
     github_cache_dir: str = ""
     admin_token: str = Field(default="", repr=False)
+    openai_api_key: str = Field(default="", repr=False)
+    openai_model: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    rag_max_sources: int = Field(default=8, ge=5, le=15)
+    rag_vector_scan_limit: int = Field(default=5000, ge=100, le=50000)
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text, UniqueConstraint, func, literal_column, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import to_tsvector
 
 from app.db.base import Base
 from app.db.models.mixins import TimestampMixin
@@ -31,6 +32,6 @@ class Paragraph(TimestampMixin, Base):
 
 
 Paragraph.__table__.append_constraint(
-    Index("ix_paragraphs_search_fts", func.to_tsvector(literal_column("'simple'::regconfig"), Paragraph.__table__.c.plain_text),
+    Index("ix_paragraphs_search_fts", to_tsvector(literal_column("'simple'::regconfig"), Paragraph.__table__.c.plain_text),
           postgresql_using="gin").ddl_if(dialect="postgresql")
 )

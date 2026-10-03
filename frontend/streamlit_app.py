@@ -8,7 +8,7 @@ import streamlit as st
 from frontend import client as api
 
 st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
-PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Analysis", "Sync"]
+PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Analysis", "Ask", "Sync"]
 
 
 def number_param(name, default=None):
@@ -243,6 +243,35 @@ def analysis_page():
         st.json(result["methods"])
 
 
+def ask_page():
+    st.title("Library에 질문하기")
+    status = api.get("/rag/status")
+    st.caption(f'임베딩 {status["embeddings"]:,}개 · pgvector {"사용 가능" if status["pgvector"] else "미설치 — 제한된 Python 벡터 검색"}')
+    st.info("기본 모드는 관련 문단 발췌이며 AI 답변이 아닙니다. OpenAI 모드는 API 키·모델 설정이 필요하고 호출 비용이 발생합니다.")
+    mode = st.selectbox("답변 방식", ["extractive", "openai"], format_func=lambda v: "본문 발췌 (무료·로컬)" if v == "extractive" else "AI 답변 (OpenAI API)")
+    books = api.get("/books")
+    book_id = st.selectbox("질문 범위", [None] + [b["id"] for b in books], format_func=lambda v: "전체" if v is None else next(b["title"] for b in books if b["id"] == v))
+    question = st.text_area("질문", placeholder="아이언 뱅크와 관련한 본문을 찾아줘")
+    consent = st.checkbox("선택한 OpenAI 모드의 유료 API 호출에 동의합니다") if mode == "openai" else True
+    if st.button("질문하기", disabled=not consent):
+        with st.spinner("관련 문단 검색 중"):
+            result = api.post("/ask", question=question, mode=mode, book_id=book_id)
+        st.write(result["answer"])
+        for source in result["sources"]:
+            with st.expander(f'{source["book_title"]} / {source["chapter_title"]} / §{source["paragraph_number"]}'):
+                st.write(source["context"])
+                if source.get("quotes"):
+                    st.write(source["quotes"])
+                st.link_button("원본 출처", source["source_url"])
+                st.button("문단 읽기", key=f'ask-read-{source["paragraph_id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": source["chapter_id"], "paragraph": source["paragraph_number"]})
+    with st.expander("임베딩 색인 만들기"):
+        provider = st.selectbox("임베딩 방식", ["local", "openai"], format_func=lambda v: "어휘 n-gram 벡터 (AI 의미 임베딩 아님)" if v == "local" else "OpenAI 의미 임베딩 (유료)")
+        cost = st.checkbox("OpenAI 색인 비용에 동의합니다", key="embedding-cost") if provider == "openai" else False
+        if st.button("최대 1,000개 변경 문단 색인", disabled=provider == "openai" and not cost):
+            with st.spinner("색인 중"):
+                st.json(api.post("/rag/index", provider=provider, book_id=book_id, limit=1000, confirm_cost=cost))
+
+
 def sync_page():
     st.title("GitHub 동기화")
     st.warning("GitHub → DB 읽기 전용 동기화입니다. 원본을 commit하거나 push하지 않습니다.")
@@ -258,6 +287,6 @@ requested = st.query_params.get("page", "Library")
 page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav")
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
-     "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Sync": sync_page}[page]()
+     "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Ask": ask_page, "Sync": sync_page}[page]()
 except api.APIError as exc:
     st.error(str(exc))

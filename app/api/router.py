@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import health, library, sync, search, qa, reading, analysis
+from app.api import health, library, sync, search, qa, reading, analysis, rag
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -10,4 +10,5 @@ api_router.include_router(search.router)
 api_router.include_router(qa.router)
 api_router.include_router(reading.router)
 api_router.include_router(analysis.router)
+api_router.include_router(rag.router)
 
