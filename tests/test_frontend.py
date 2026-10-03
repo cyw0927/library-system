@@ -22,3 +22,10 @@ def test_invalid_reader_url_does_not_crash():
     at.query_params.update(page="Reader", chapter="bad-id")
     at.run()
     assert not at.exception and at.info
+
+
+def test_menu_navigation_updates_url_for_reload():
+    with patch("frontend.client.get", return_value=[]):
+        at = AppTest.from_file(str(SCRIPT)).run()
+        at.sidebar.radio[0].set_value("Search").run()
+        assert not at.exception and at.query_params["page"] == "Search"

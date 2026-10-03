@@ -45,7 +45,8 @@ def library_page():
     for book in books:
         with st.container(border=True):
             st.subheader(book["title"])
-            st.caption(f'{book.get("author") or "저자 정보 없음"} · {book["volume_count"]}권 · {book["chapter_count"]}개 장 파일')
+            volume_label = f'{book["volume_count"]}권' if book["volume_count"] else "권 구분 없음"
+            st.caption(f'{book.get("author") or "저자 정보 없음"} · {volume_label} · {book["chapter_count"]}개 장 파일')
             if book.get("expected_chapters"):
                 st.write(f'README 기준 전체: {book["expected_chapters"]}장 (부록 등 파일 수와 다를 수 있음)')
             if book.get("translation_progress") is not None:
@@ -283,8 +284,12 @@ def sync_page():
             st.json(run)
 
 
+def sync_menu_url():
+    st.query_params["page"] = st.session_state["page_nav"]
+
+
 requested = st.query_params.get("page", "Library")
-page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav")
+page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav", on_change=sync_menu_url)
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
      "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Ask": ask_page, "Sync": sync_page}[page]()
