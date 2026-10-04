@@ -1,0 +1,14 @@
+*
+!requirements.txt
+!requirements-frontend.txt
+!app/
+!app/**
+!frontend/
+!frontend/**
+!scripts/
+!scripts/**
+!alembic/
+!alembic/**
+!alembic.ini
+**/__pycache__/
+**/*.pyc

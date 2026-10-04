@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from app.api.dependencies import Admin, DB, columns
+from app.api.dependencies import DB, Private, columns
 from app.api.library import active_chapter
 from app.db.models import Bookmark, Chapter, Paragraph, ReadingProgress
 
-router = APIRouter(tags=["Private reading records"], dependencies=[Admin])
+router = APIRouter(tags=["Private reading records"])
 
 
 class Position(BaseModel):
@@ -40,8 +40,8 @@ def record_result(record, chapter):
 
 
 @router.get("/reading/progress")
-def progress(db: DB, book_id: int | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
-    query = select(ReadingProgress, Chapter).join(Chapter, ReadingProgress.chapter_id == Chapter.id).where(ReadingProgress.user_id == "local")
+def progress(db: DB, identity: Private, book_id: int | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    query = select(ReadingProgress, Chapter).join(Chapter, ReadingProgress.chapter_id == Chapter.id).where(ReadingProgress.user_id == identity.id)
     if book_id is not None:
         query = query.where(ReadingProgress.book_id == book_id)
     rows = db.execute(query.order_by(ReadingProgress.updated_at.desc(), ReadingProgress.id.desc()).offset(offset).limit(limit))
@@ -56,12 +56,12 @@ def progress(db: DB, book_id: int | None = None, limit: int = Query(50, ge=1, le
 
 
 @router.put("/reading/progress")
-def save_progress(body: Position, db: DB):
+def save_progress(body: Position, db: DB, identity: Private):
     chapter = active_chapter(db, body.chapter_id)
     paragraph_at(db, chapter.id, body.paragraph_number)
-    record = db.scalar(select(ReadingProgress).where(ReadingProgress.user_id == "local", ReadingProgress.chapter_id == chapter.id))
+    record = db.scalar(select(ReadingProgress).where(ReadingProgress.user_id == identity.id, ReadingProgress.chapter_id == chapter.id))
     if record is None:
-        record = ReadingProgress(chapter_id=chapter.id, book_id=chapter.book_id)
+        record = ReadingProgress(user_id=identity.id, chapter_id=chapter.id, book_id=chapter.book_id)
         db.add(record)
     record.paragraph_number, record.completed, record.source_sha = body.paragraph_number, body.completed, chapter.github_sha
     db.commit()
@@ -69,18 +69,18 @@ def save_progress(body: Position, db: DB):
 
 
 @router.get("/bookmarks")
-def bookmarks(db: DB, book_id: int | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
-    query = select(Bookmark, Chapter).join(Chapter).where(Bookmark.user_id == "local")
+def bookmarks(db: DB, identity: Private, book_id: int | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    query = select(Bookmark, Chapter).join(Chapter).where(Bookmark.user_id == identity.id)
     if book_id is not None:
         query = query.where(Chapter.book_id == book_id)
     return [record_result(record, chapter) for record, chapter in db.execute(query.order_by(Bookmark.updated_at.desc(), Bookmark.id.desc()).offset(offset).limit(limit))]
 
 
 @router.post("/bookmarks", status_code=201)
-def create_bookmark(body: BookmarkInput, db: DB):
+def create_bookmark(body: BookmarkInput, db: DB, identity: Private):
     chapter = active_chapter(db, body.chapter_id)
     paragraph = paragraph_at(db, chapter.id, body.paragraph_number) if body.paragraph_number else None
-    record = Bookmark(chapter_id=chapter.id, paragraph_id=paragraph.id if paragraph else None,
+    record = Bookmark(user_id=identity.id, chapter_id=chapter.id, paragraph_id=paragraph.id if paragraph else None,
                       paragraph_number=body.paragraph_number, note=body.note, source_sha=chapter.github_sha)
     db.add(record)
     db.commit()
@@ -88,9 +88,9 @@ def create_bookmark(body: BookmarkInput, db: DB):
 
 
 @router.patch("/bookmarks/{bookmark_id}")
-def update_bookmark(bookmark_id: int, body: NoteInput, db: DB):
+def update_bookmark(bookmark_id: int, body: NoteInput, db: DB, identity: Private):
     record = db.get(Bookmark, bookmark_id)
-    if not record or record.user_id != "local":
+    if not record or record.user_id != identity.id:
         raise HTTPException(404, "Bookmark not found")
     record.note = body.note
     db.commit()
@@ -98,9 +98,9 @@ def update_bookmark(bookmark_id: int, body: NoteInput, db: DB):
 
 
 @router.delete("/bookmarks/{bookmark_id}", status_code=204)
-def delete_bookmark(bookmark_id: int, db: DB):
+def delete_bookmark(bookmark_id: int, db: DB, identity: Private):
     record = db.get(Bookmark, bookmark_id)
-    if not record or record.user_id != "local":
+    if not record or record.user_id != identity.id:
         raise HTTPException(404, "Bookmark not found")
     db.delete(record)
     db.commit()
