@@ -8,7 +8,7 @@ import subprocess
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPSHandler, ProxyHandler, build_opener
 from uuid import uuid4
 
 
@@ -49,6 +49,7 @@ def main():
         return result.stdout if capture else None
 
     context = ssl.create_default_context(cafile=str(cert))
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=context))
 
     def http(path, method="GET", body=None, token=None):
         headers = {"Content-Type": "application/json"}
@@ -57,7 +58,7 @@ def main():
         request = Request("https://localhost:8443" + path, method=method, headers=headers,
                           data=json.dumps(body).encode() if body is not None else None)
         try:
-            response = urlopen(request, context=context, timeout=10)
+            response = opener.open(request, timeout=10)
         except HTTPError as exc:
             response = exc
         content = response.read()
@@ -72,15 +73,18 @@ def main():
         run(["build"])
         run(["up", "-d", "--wait", "--wait-timeout", "180"])
         run(["exec", "-T", "proxy", "nginx", "-t"])
-        for _ in range(60):
+        last_error = "no response"
+        for _ in range(30):
             try:
-                if http("/api/health/db")[0] == 200:
+                status, health = http("/api/health/db")
+                if status == 200:
                     break
-            except (URLError, OSError):
-                pass
+                last_error = f"HTTP {status}: {health}"
+            except (URLError, OSError) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
             time.sleep(1)
         else:
-            raise AssertionError("TLS proxy readiness failed")
+            raise AssertionError("TLS proxy readiness failed: " + last_error)
         assert http("/")[0] == 200
         assert http("/api/books")[0] == 401
         assert http("/api/docs")[0] == 404
@@ -131,6 +135,9 @@ with get_session_factory()() as db:
                       "-c", "SELECT (SELECT count(*) FROM bookmarks), (SELECT count(*) FROM accounts), (SELECT count(*) FROM login_sessions);"], capture=True)
         assert result.strip() == "1|3|0"
         print("Production smoke passed: non-root image, secret mounts, migrations, TLS, API isolation, 19 authenticated UI pages, pgvector, backup/restore")
+    except BaseException:
+        run(["logs", "--tail", "80", "api", "proxy", "frontend", "migrate"])
+        raise
     finally:
         # Only our unique CI project/volume. Never removes a user's production volume.
         assert project.startswith("library-ci-") and os.getenv("GITHUB_ACTIONS") == "true"

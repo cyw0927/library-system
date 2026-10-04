@@ -103,6 +103,8 @@ $env:RESTORE_DATABASE_URL = 'postgresql+psycopg://app:URL_ENCODED_PASSWORD@127.0
 
 복구 도구는 DB 이름이 원본과 같거나 대상에 사용자 테이블/뷰/sequence가 있으면 거부합니다. `DROP`, `--clean`, 원본 덮어쓰기 없음. 복구는 single transaction + exit-on-error, 세션 모두 폐기. 성공 후 별도 DB에서 모델/migration/read API와 기록을 확인한 다음에만 DATABASE_URL 전환. 전환 전에는 두 DB에 새 메모를 쓰지 않도록 앱을 정지합니다.
 
+로그인 도입 전(0008 이하) 백업도 복구할 수 있습니다. 복원된 원래 revision을 보존하며, `login_sessions`가 없는 이전 백업에는 세션 UPDATE를 실행하지 않습니다. 복구 검증 후 `alembic upgrade head`를 적용하세요.
+
 컨테이너에서 백업을 export할 때는 archive와 `.json` manifest를 모두 가져와야 합니다. read-only root인 API `/tmp`는 임시 공간이므로 **검증 후 host/별도 저장소로 옮긴 뒤** 컨테이너를 재시작하세요. 운영에서는 전용 backup volume/백업 작업 컨테이너에 영속 경로를 mount하는 것을 권장합니다. 비밀번호는 argv가 아닌 libpq 환경에 전달하고 오류 로그에는 DB URL을 출력하지 않습니다.
 
 주기 실행·보존 삭제·원격 업로드는 아직 설치하지 않았습니다. 실제 운영 환경과 보존 기간을 정한 뒤 스케줄러에 등록합니다. 최소 하루 1회 및 migration 전 백업, 주기적인 별도 DB 복구 훈련을 권장합니다. DB dump는 cluster 역할/권한을 복원하지 않으므로 운영 역할 DDL은 별도 안전한 IaC로 보관합니다.

@@ -88,7 +88,7 @@ services:
     secrets: [tls_certificate, tls_private_key]
     depends_on:
       frontend: {condition: service_healthy}
-    networks: [private]
+    networks: [private, edge]
     read_only: true
     tmpfs: ["/var/cache/nginx:rw,noexec,nosuid,uid=101,size=32m", "/var/run:rw,noexec,nosuid,uid=101,size=16m", "/tmp:rw,noexec,nosuid,uid=101,size=16m"]
     cap_drop: [ALL]
@@ -98,6 +98,7 @@ volumes:
 networks:
   private: {internal: true}
   outbound: {}
+  edge: {}
 secrets:
   postgres_password: {file: ./deploy/secrets/postgres_password}
   database_url: {file: ./deploy/secrets/database_url}

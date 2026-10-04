@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -114,7 +114,9 @@ def restore(source_url, target_url, archive, pg_bin=None, confirmed=False):
     engine = create_engine(target_url)
     try:
         with engine.begin() as connection:
-            connection.execute(text("UPDATE login_sessions SET revoked = true"))
+            # Pre-login MVP backups have no session table; migrate AFTER restore.
+            if inspect(connection).has_table("login_sessions"):
+                connection.execute(text("UPDATE login_sessions SET revoked = true"))
     finally:
         engine.dispose()
 
