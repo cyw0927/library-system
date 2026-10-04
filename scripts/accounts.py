@@ -3,7 +3,7 @@ import argparse
 import getpass
 import sys
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.security import hash_password, username
@@ -34,6 +34,9 @@ def change_password(db, account, password):
 
 
 def deactivate(db, account):
+    if db.get_bind().dialect.name == "postgresql":
+        # Serialize last-admin checks across concurrent operator CLI processes.
+        db.execute(text("SELECT pg_advisory_xact_lock(791093442)"))
     admins = db.scalar(select(func.count()).select_from(Account).where(Account.role == "admin", Account.is_active))
     if account.role == "admin" and account.is_active and admins <= 1:
         raise ValueError("Cannot deactivate the last active administrator")
