@@ -1,0 +1,13 @@
+[Unit]
+Description=Library App verified database backup (no deletion)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Template only: change this directory and PUBLIC_HOST before installing.
+WorkingDirectory=/opt/library-app
+Environment=PUBLIC_HOST=replace-with-your-host.example
+ExecStart=/usr/bin/docker compose -f compose.production.yaml --profile operations run --rm --no-deps backup
+TimeoutStartSec=3900
+UMask=0077

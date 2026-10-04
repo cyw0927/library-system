@@ -61,3 +61,17 @@ def test_expired_ui_session_returns_to_login(monkeypatch):
         at.run()
         assert not at.exception and "로그인" in at.title[0].value
         assert "access_token" not in at.session_state
+
+
+def test_admin_ask_screen_hides_all_paid_controls_when_disabled():
+    def fake_get(path, **params):
+        if path == "/rag/status":
+            return dict(embeddings=0, pgvector=False, paid_ai_enabled=False)
+        return []
+    at = AppTest.from_file(str(SCRIPT))
+    at.query_params.update(page="Ask")
+    with patch("frontend.client.get", side_effect=fake_get):
+        at.run()
+        assert not at.exception
+        assert at.selectbox[0].options == ["본문 발췌 (무료·로컬)"]
+        assert not at.checkbox

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     session_hours: int = Field(default=8, ge=1, le=24)
     allowed_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1", "testserver"])
     openai_api_key: str = Field(default="", repr=False)
+    paid_ai_enabled: bool = False
     openai_model: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
     rag_max_sources: int = Field(default=8, ge=5, le=15)

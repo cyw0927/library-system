@@ -2,6 +2,7 @@ import argparse
 import json
 
 from app.db.session import get_session_factory
+from app.core.config import get_settings
 from app.services.rag_service import index_paragraphs
 
 
@@ -14,6 +15,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not 1 <= args.limit <= 2000:
         parser.error("limit must be between 1 and 2000")
+    if args.provider == "openai" and not get_settings().paid_ai_enabled:
+        parser.error("Paid AI is disabled; use --provider local")
     if args.provider == "openai" and not args.confirm_cost:
         parser.error("OpenAI indexing incurs charges; pass --confirm-cost")
     with get_session_factory()() as session:

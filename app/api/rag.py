@@ -38,7 +38,8 @@ class IndexRequest(BaseModel):
 @router.get("/rag/status")
 def rag_status(db: DB, identity: Private):
     settings = get_settings()
-    return dict(openai_configured=bool(settings.openai_api_key and settings.openai_model), pgvector=has_pgvector(db),
+    return dict(openai_configured=bool(settings.paid_ai_enabled and settings.openai_api_key and settings.openai_model),
+                paid_ai_enabled=settings.paid_ai_enabled, pgvector=has_pgvector(db),
                 embeddings=db.scalar(select(func.count(Embedding.id))),
                 default_mode="extractive", maximum_sources=settings.rag_max_sources,
                 local_embedding="lexical token hashing, not semantic AI")
@@ -46,6 +47,8 @@ def rag_status(db: DB, identity: Private):
 
 @router.post("/rag/index", dependencies=[Admin])
 def index(body: IndexRequest, db: DB):
+    if body.provider == "openai" and not get_settings().paid_ai_enabled:
+        raise HTTPException(403, "Paid AI is disabled")
     if body.book_id:
         active_book(db, body.book_id)
     if body.provider == "openai" and not body.confirm_cost:
@@ -58,6 +61,8 @@ def index(body: IndexRequest, db: DB):
 
 @router.post("/ask")
 def ask_question(body: Question, db: DB, identity: Private):
+    if body.mode == "openai" and not get_settings().paid_ai_enabled:
+        raise HTTPException(403, "Paid AI is disabled")
     if body.mode == "openai" and identity.role != "admin":
         raise HTTPException(403, "Administrator permission required for paid AI calls")
     if body.book_id:

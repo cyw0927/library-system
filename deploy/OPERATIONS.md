@@ -7,7 +7,7 @@
 - `APP_ENV=production`은 `AUTH_REQUIRED=false`여도 로그인 강제. localhost에서 먼저 시험하려면 `AUTH_REQUIRED=true`.
 - 원문·검색·QA·용어·분석 API는 로그인 필요. `/health`, `/health/db`, 로그인은 민감 내용을 반환하지 않는 공개 엔드포인트입니다.
 - 독서 위치/북마크/메모는 서버가 세션의 계정 ID로 소유자를 결정. 다른 계정(관리자 포함)은 조회·수정·삭제할 수 없습니다. 제출한 `user_id`는 사용하지 않습니다.
-- `admin`: 동기화, QA 실행/검토, 용어 변경, 벡터 색인과 유료 AI 답변. `reader`: 원문/검색/분석/QA/용어 읽기, 자신의 기록, 무료 발췌 Ask.
+- `admin`: 동기화, QA 실행/검토, 용어 변경, 로컬 벡터 색인. `reader`: 원문/검색/분석/QA/용어 읽기, 자신의 기록, 무료 발췌 Ask. **유료 AI는 현재 제외**: `PAID_AI_ENABLED=false`가 API·CLI·서비스에서 호출을 차단합니다. production Compose도 false로 고정했습니다.
 - 공개 가입 없음. 계정은 DB 접근 권한을 가진 운영자가 CLI로 생성. 비밀번호 12–128자, 무작위 16바이트 salt + scrypt N=2^17/r=8/p=1.
 - 세션: 256비트 무작위 Bearer, DB에는 SHA-256만 저장. 고정 8시간(1–24시간 설정) 후 만료. 로그아웃/비밀번호 변경/계정 비활성화 시 즉시 폐기. Streamlit 서버의 사용자별 세션 메모리에만 원본 토큰 저장, URL/localStorage/로그에 기록하지 않음. 브라우저 새로고침/서버 재시작 시 다시 로그인할 수 있습니다.
 - 계정별 실패 5회 → 15분 잠금(재시작해도 보존); HTTP 응답은 없는 계정/잘못된 비밀번호/비활성화/잠금을 구분하지 않습니다. 별도 socket-peer 제한 20회/분, 프로세스 전체 120회/분, scrypt 동시 실행 최대 2개. Streamlit 이용자는 backend 관점에서 같은 peer 예산을 공유합니다. 분산 배포에는 공유 rate limiter와 외부 IdP/MFA가 필요합니다.
@@ -89,7 +89,7 @@ OpenAI secrets는 기본 구성에 넣지 않았습니다(자동 과금 방지).
 - [ ] 무인증 API 401, reader 관리자 동작 403, 다른 사용자 메모 404, 만료·폐기 세션 401.
 - [ ] 백업 생성·다른 빈 DB 복원·메모 확인. 백업 암호화와 별도 장치/서버 보관.
 - [ ] DB/backup 디스크 용량, 로그 회전/상태 모니터링과 담당자, 보존 기간 설정.
-- [ ] 이미지 버전/digest와 의존성 취약점 검사. 현재 Python/nginx base tag는 고정 digest가 아니므로 승인된 버전으로 pin.
+- [ ] 이미지/OS 의존성 취약점 검사. Python/nginx/pgvector 이미지는 확인한 multi-platform digest로 고정했고 CI는 실제 앱 이미지의 Python 패키지도 검사합니다. OS 패키지/CVE 전체 검사, 이미지 서명 검증은 실제 서버의 추가 배포 조건입니다. digest 고정은 업데이트를 대신하지 않으므로 갱신 때 검사/전체 CI를 재실행하세요.
 - [ ] 외부 공개 설정(예: 프록시만 `443:8443`)을 별도 검토·승인. 앱이 자동으로 포트를 열지 않습니다.
 
 ## 백업 / 안전한 복구
@@ -110,6 +110,50 @@ $env:RESTORE_DATABASE_URL = 'postgresql+psycopg://app:URL_ENCODED_PASSWORD@127.0
 
 컨테이너에서 백업을 export할 때는 archive와 `.json` manifest를 모두 가져와야 합니다. read-only root인 API `/tmp`는 임시 공간이므로 **검증 후 host/별도 저장소로 옮긴 뒤** 컨테이너를 재시작하세요. 운영에서는 전용 backup volume/백업 작업 컨테이너에 영속 경로를 mount하는 것을 권장합니다. 비밀번호는 argv가 아닌 libpq 환경에 전달하고 오류 로그에는 DB URL을 출력하지 않습니다.
 
-주기 실행·보존 삭제·원격 업로드는 아직 설치하지 않았습니다. 실제 운영 환경과 보존 기간을 정한 뒤 스케줄러에 등록합니다. 최소 하루 1회 및 migration 전 백업, 주기적인 별도 DB 복구 훈련을 권장합니다. DB dump는 cluster 역할/권한을 복원하지 않으므로 운영 역할 DDL은 별도 안전한 IaC로 보관합니다.
+지속 백업 작업과 일일 timer 템플릿은 아래에 제공합니다. 실제 스케줄 등록·보존 삭제·원격 업로드는 설치하지 않았습니다. 최소 하루 1회 및 migration 전 백업, 주기적인 별도 DB 복구 훈련을 권장합니다. DB dump는 cluster 역할/권한을 복원하지 않으므로 운영 역할 DDL은 별도 안전한 IaC로 보관합니다.
+
+## 배포 전 사전 점검 (읽기 전용)
+
+```bash
+python -m pip install -r requirements-ops.txt
+python -m scripts.deployment_check --host your-real-host.example
+# 서버를 별도 승인받아 시작한 뒤: 기본 CA 검증을 사용, TLS 우회 옵션 없음
+python -m scripts.deployment_check --host your-real-host.example --live-url https://your-real-host.example
+```
+
+secret 파일 누락/역할·비밀번호 불일치/짧은 키, Unix parent 권한, localhost-only 포트, paid AI 차단, 이미지 digest, 로그 회전, TLS 개인키 일치·SAN hostname·14일 내 만료를 점검합니다. 실패하면 exit 1, 비밀 값은 출력하지 않습니다. `--root`로 검사할 checkout을 명시할 수 있습니다. 파일 검사 성공은 공개 CA 신뢰/인증서 갱신/방화벽/도서 이용 권한의 증명이 아닙니다. `--live-url`은 신뢰 TLS, DB health 200, 무인증 책 API 401, docs 404를 GET으로 확인합니다. Windows ACL 검사는 별도입니다. 이 도구는 서비스를 띄우거나 포트를 열지 않습니다.
+
+## 지속 백업과 상태 확인
+
+```bash
+# 정상 운영 DB가 이미 시작된 뒤; 기존 백업 삭제/덮어쓰기 없음
+docker compose -f compose.production.yaml --profile operations run --rm --no-deps backup
+# 새 컨테이너에서도 같은 production_backups volume을 조회
+docker compose -f compose.production.yaml --profile operations run --rm --no-deps backup \
+  python -m scripts.backup_job --directory /backups --check-only
+```
+
+새 named volume은 이미지의 `/backups` UID 10001 권한을 상속합니다. 기존/외부 volume 권한이 다르면 실패하며 자동으로 넓히지 않습니다. job은 UTC timestamp + UUID 파일명, 최소 1GB 여유 공간, dump/manifest 검증을 사용합니다. `--check-only`는 기본 26시간 내 최신 백업과 checksum/여유 공간을 확인하고 실패 시 exit 1을 반환합니다. 빈/오래된/손상된 백업을 정상으로 표시하지 않습니다. 이 검사는 실제 복구 훈련을 대신하지 않습니다.
+
+archive와 manifest는 컨테이너가 아니라 `production_backups`에 유지됩니다. 이는 DB와 **같은 서버의 미암호화 백업**이므로 서버 장애/침해 대비에는 충분하지 않습니다. 관리자만 접근하고 암호화된 별도 장치/서버로 둘 다 export해야 합니다. 보존 삭제·원격 업로드는 자동 수행하지 않습니다. 디스크 알림과 보존 계획을 운영자가 정하세요. `docker compose down --volumes`는 DB와 백업을 지울 수 있으므로 운영에서 실행하지 마세요.
+
+로컬 Windows에서도 같은 도구를 쓸 수 있습니다:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.backup_job --directory backups --pg-bin 'C:\Program Files\PostgreSQL\18\bin'
+.\.venv\Scripts\python.exe -m scripts.backup_job --directory backups --check-only
+```
+
+## 주기 실행과 로그
+
+`deploy/systemd/library-backup.service` / `.timer`는 **미설치 템플릿**입니다. 승인된 Linux 서버에서 WorkingDirectory·PUBLIC_HOST·시간대·실패 알림을 설정하고 수동 백업/복구를 확인한 후에만 등록하세요. 기본 시간은 서버 시간대의 매일 03:00 + 15분 이내 jitter, 놓친 작업은 Persistent=true로 재개합니다. Docker 접근은 root에 준하므로 서비스 파일/checkout은 신뢰하는 관리자만 수정할 수 있어야 합니다. 실패 알림 수신자는 정하지 않았으므로 자동 통보를 약속하지 않습니다.
+
+각 컨테이너 로그는 `json-file` 최대 10MB × 3개로 회전합니다. 수치는 컨테이너당 제한이며 DB/backup 데이터 용량 제한이 아닙니다. 운영 health 모니터는 승인된 서버에서 HTTPS preflight와 backup `--check-only`의 exit status를 감시하도록 연결하세요. 별도 프로세스를 이 PC에 등록하지 않았습니다.
+
+## 보안 검사
+
+CI `dependency-audit`는 앱/운영 점검/테스트 패키지의 알려진 PyPI 취약점을 검사합니다. production-smoke는 **빌드한 이미지에 실제 설치된** Python 패키지를 별도로 검사합니다. 결과가 나오면 무시하지 않고 실패 처리합니다. 검사 시 패키지 이름/버전만 공개 취약점 서비스에 전송합니다. 이 검사는 미발견 취약점·OS 패키지·코드 전체 보안 감사의 부재를 보증하지 않습니다.
+
+근거: [Docker 로그 회전](https://docs.docker.com/engine/logging/drivers/json-file/), [pip-audit](https://github.com/pypa/pip-audit), [OpenAI 운영 비용 관리](https://developers.openai.com/api/docs/guides/production-best-practices).
 
 근거: [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), [OWASP session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), [PostgreSQL pg_dump](https://www.postgresql.org/docs/18/app-pgdump.html), [pg_restore](https://www.postgresql.org/docs/18/app-pgrestore.html), [Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/).

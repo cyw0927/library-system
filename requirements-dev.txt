@@ -1,5 +1,6 @@
 -r requirements.txt
 httpx>=0.28,<1.0
-pytest>=8.3,<9.0
+pytest>=9.0.3,<10.0
 -r requirements-frontend.txt
+-r requirements-ops.txt
 

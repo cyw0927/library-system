@@ -14,6 +14,13 @@ from tests.test_sync import FakeSource, session
 from app.services.sync_service import sync_snapshot
 
 
+@pytest.fixture(autouse=True)
+def fresh_settings():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def library(session):
     source = FakeSource({"Book/01.md": "# 제목\n\n아이언 뱅크는 자금을 빌려주는 은행이다.\n\n다른 문단은 여행에 관한 이야기이다."})
     sync_snapshot(session, source, source.snapshot())
@@ -36,7 +43,9 @@ def test_extracts_sources_abstains_and_invalidates_stale_embeddings(session):
     assert empty["answer"] == INSUFFICIENT and empty["sources"] == []
 
 
-def test_generated_answer_requires_real_quote_and_known_source(session):
+def test_generated_answer_requires_real_quote_and_known_source(session, monkeypatch):
+    monkeypatch.setenv("PAID_AI_ENABLED", "true")
+    get_settings.cache_clear()
     library(session)
     class Provider:
         def answer(self, question, sources):
@@ -49,7 +58,9 @@ def test_generated_answer_requires_real_quote_and_known_source(session):
     assert ask(session, "아즈텍퀘이사뉴트리노", mode="openai", client=BadProvider())["status"] == "insufficient_evidence"
 
 
-def test_openai_request_format_and_sanitized_failure():
+def test_openai_request_format_and_sanitized_failure(monkeypatch):
+    monkeypatch.setenv("PAID_AI_ENABLED", "true")
+    get_settings.cache_clear()
     calls = []
     def handler(request):
         body = json.loads(request.content)
@@ -77,7 +88,7 @@ def test_api_requires_auth_cost_confirmation_and_real_configuration(client, monk
     headers = {"X-Admin-Token": "test-token"}
     try:
         assert client.post("/ask", json={"question": "질문입니다"}).status_code == 401
-        assert client.post("/ask", json={"question": "질문입니다", "mode": "openai"}, headers=headers).status_code == 503
+        assert client.post("/ask", json={"question": "질문입니다", "mode": "openai"}, headers=headers).status_code == 403
         assert client.post("/rag/index", json={"provider": "openai"}, headers=headers).status_code == 403
         assert client.get("/rag/status", headers=headers).json()["openai_configured"] is False
     finally:

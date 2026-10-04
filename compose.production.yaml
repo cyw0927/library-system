@@ -1,8 +1,14 @@
 # Standalone: do NOT merge with compose.yaml (which publishes a development DB port).
 name: library-production
+x-logging: &rotating_logs
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
 services:
   db:
-    image: pgvector/pgvector:0.8.7-pg18
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    logging: *rotating_logs
+    mem_limit: 2g
+    cpus: 2
     restart: unless-stopped
     environment:
       POSTGRES_DB: library_app
@@ -17,6 +23,7 @@ services:
       timeout: 5s
       retries: 20
   migrate:
+    logging: *rotating_logs
     build: .
     image: library-app:operations
     environment: &backend_env
@@ -25,6 +32,7 @@ services:
       LIBRARY_SECRETS_DIR: /run/secrets
       ALLOWED_HOSTS: '["api","localhost","127.0.0.1"]'
       GITHUB_USE_GIT_CREDENTIALS: "false"
+      PAID_AI_ENABLED: "false"
       DATABASE_TIMEOUT_SECONDS: "30"
     secrets:
       - source: migration_database_url
@@ -39,6 +47,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
   api:
+    logging: *rotating_logs
     image: library-app:operations
     restart: unless-stopped
     environment: *backend_env
@@ -58,6 +67,7 @@ services:
       timeout: 10s
       retries: 3
   frontend:
+    logging: *rotating_logs
     image: library-app:operations
     restart: unless-stopped
     environment:
@@ -81,7 +91,9 @@ services:
       timeout: 10s
       retries: 3
   proxy:
-    image: nginx:stable-alpine
+    image: nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
+    logging: *rotating_logs
+    mem_limit: 128m
     user: "101:101"
     restart: unless-stopped
     # Local TLS preview only. Expose public 443 only AFTER the deployment checklist.
@@ -96,8 +108,27 @@ services:
     tmpfs: ["/var/cache/nginx:rw,noexec,nosuid,uid=101,size=32m", "/var/run:rw,noexec,nosuid,uid=101,size=16m", "/tmp:rw,noexec,nosuid,uid=101,size=16m"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+  backup:
+    profiles: [operations]
+    image: library-app:operations
+    environment: *backend_env
+    secrets: [database_url]
+    command: ["python", "-m", "scripts.backup_job", "--directory", "/backups"]
+    # Start only the existing DB, never app migrations for a backup job.
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [private]
+    volumes: ["production_backups:/backups"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *rotating_logs
+    mem_limit: 512m
 volumes:
   production_pg:
+  # New volume inherits /backups UID10001 from the image; never mount shared storage.
+  production_backups:
 networks:
   private: {internal: true}
   outbound: {}

@@ -4,7 +4,7 @@ GitHub `cyw0927/library`의 Markdown을 읽기 전용으로 수집하는 개인 
 
 ## 구현 상태
 
-운영 준비 기능(초대형 로그인, admin/reader 역할, 사용자별 독서 기록 격리, 안전한 DB 백업/복구, 독립 TLS Docker 구성)을 추가했습니다. [운영 가이드](deploy/OPERATIONS.md)를 먼저 읽으세요. **외부 배포/PR 병합은 수행하지 않습니다.** production은 모든 원문 API에 로그인을 강제하고 legacy ADMIN_TOKEN을 거부합니다.
+운영 준비 기능(초대형 로그인, 역할별 권한, 개인 기록 격리, 지속 백업/복구, 독립 TLS Docker 구성, 배포 사전 점검, 로그 회전, 의존성 보안 검사)을 제공합니다. [운영 가이드](deploy/OPERATIONS.md)와 [요구사항 인수표](deploy/ACCEPTANCE.md)를 먼저 읽으세요. **외부 공개와 PR 병합은 별도 승인 사항입니다.** production은 모든 원문 API에 로그인을 강제하고 legacy ADMIN_TOKEN을 거부합니다.
 
 Phase 1–13의 MVP 코드를 순서대로 구현했습니다. 외부 서비스의 실제 운영 검증은 별도입니다.
 
@@ -21,7 +21,9 @@ Phase 1–13의 MVP 코드를 순서대로 구현했습니다. 외부 서비스�
 - [x] 글자 수·장 길이·POV·등록 인물/용어·반복 어절 분석
 - [x] 마지막 단계 RAG: 제한된 문단 검색, 출처 검증, 근거 부족 응답, API 어댑터
 - [x] pgvector SQL 코사인 검색 경로와 CI 검사
-- [ ] 실제 OpenAI 유료 호출: API 키와 접근 가능한 모델 설정 후 별도 확인 필요
+- [x] 무료 전용 운영: PAID_AI_ENABLED=false로 API·CLI·서비스 유료 호출 차단, 화면 유료 선택지 숨김
+- [x] 배포 사전 점검, digest 이미지 고정, 로그 회전, 지속 백업 작업/일일 timer 템플릿, CI 의존성 취약점 검사
+- 실제 OpenAI 호출/검증은 **사용자 요청에 따라 제외**했습니다. 과금 API를 호출하지 않습니다.
 
 무료 기본 모드는 **본문 발췌**입니다. AI 해석 답변이 아닙니다. 로컬 n-gram 해시 벡터도 어휘 기반이며 의미 임베딩으로 표시하지 않습니다.
 
@@ -62,7 +64,7 @@ py -m venv .venv
 Copy-Item .env.example .env
 ```
 
-기존 clone에서는 해당 폴더를 사용합니다. 이 구현은 `feat/library-platform` PR 브랜치에 있습니다. 기반 Phase 1/2 PR 이후 순서대로 병합하거나 해당 브랜치를 체크아웃하세요.
+기존 clone에서는 해당 폴더를 사용합니다. 최종 구현 브랜치는 `feat/deployment-finish`입니다. 기반 Phase 1/2 → library-platform → operations → deployment-finish 순으로 검토·병합하거나 최종 브랜치를 체크아웃하세요. 브랜치를 바꾸기 전에 미커밋 변경을 보존하세요.
 
 ## DB 설정과 migration
 
@@ -184,7 +186,7 @@ QA는 구조/H1/본문, heading 단계, 링크 구문, HTML 주석, reading-nav 
 .\.venv\Scripts\python.exe -m scripts.rebuild_index --provider local --limit 1000
 ```
 
-OpenAI 모드는 `OPENAI_API_KEY`와 사용 권한이 있는 `OPENAI_MODEL`을 직접 설정합니다. 공식 Responses API + strict JSON schema와 Embeddings API를 사용합니다. 답변의 source_id 및 정확한 인용문을 실제 제공 문단과 대조하며 유효하지 않으면 답변을 보류합니다. 이 검사는 문장 의미의 완전한 entailment 증명이 아니므로 중요한 해석은 원문과 대조하세요.
+OpenAI 모드는 기본 차단되어 있습니다. `PAID_AI_ENABLED=false`이면 키/모델이 있어도 외부 유료 호출 없이 거부됩니다. 관리자도 이를 우회할 수 없으며 무료 검색·본문 발췌·로컬 색인은 계속 사용 가능합니다. 유료 기능은 현재 작업 범위에서 제외되었습니다. 추후 별도 승인하여 활성화할 때에만 `PAID_AI_ENABLED=true`, `OPENAI_API_KEY`, 사용 권한이 있는 `OPENAI_MODEL`을 설정합니다. 어댑터는 strict JSON schema와 정확한 인용문 검증을 사용하지만 실제 유료 연결은 검증하지 않았습니다.
 
 ```powershell
 # 유료: 명시적으로 비용 승인해야 실행됨
@@ -220,4 +222,4 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 ## 향후 개선
 
-작품별 세부 접근 정책, MFA/SSO, native vector/HNSW, 형태소·NER, 긴 문단의 토큰 기반 chunking, 대규모 검색 품질·비용 평가, background job queue, 운영 환경별 자동 백업 스케줄 등록. 원본 자동 편집/commit/push는 초기 앱 범위 밖입니다.
+작품별 세부 접근 정책, MFA/SSO, native vector/HNSW, 형태소·NER, 긴 문단의 토큰 기반 chunking, 대규모 검색 품질·비용 평가, background job queue. 백업 timer 템플릿은 제공하지만 실제 서버 설치/원격 보관은 환경 선택 후 수행합니다. 원본 자동 편집/commit/push는 초기 앱 범위 밖입니다.
