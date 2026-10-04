@@ -143,7 +143,7 @@ def test_tls_checks_hostname_expiry_and_key_match(tmp_path):
         check_tls(cert, key, "library.test")
     cert, key = certificate(tmp_path)
     other = tmp_path / "other"
-    other.mkdir()
+    other.mkdir(mode=0o700)
     _, other_key = certificate(other)
     with pytest.raises(ValueError, match="mismatch"):
         check_tls(cert, other_key, "library.test")
