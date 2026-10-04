@@ -74,6 +74,14 @@ def main():
     try:
         run(["config", "--quiet"])
         run(["build"])
+        # Audit the exact Python packages installed INSIDE the built image, not
+        # just the runner's dependency resolution. Only package names/versions leave CI.
+        installed = run(["run", "--rm", "--no-deps", "api", "python", "-m", "pip", "list", "--format", "freeze"], capture=True)
+        image_requirements = runtime / "image-requirements.txt"
+        image_requirements.write_text(installed, encoding="utf-8")
+        subprocess.run(["python", "-m", "pip_audit", "-r", str(image_requirements), "--no-deps", "--disable-pip",
+                        "--progress-spinner", "off"], check=True, timeout=180)
+        print("Built image Python dependencies: no known vulnerabilities")
         run(["up", "-d", "--wait", "--wait-timeout", "180"])
         run(["exec", "-T", "proxy", "nginx", "-t"])
         last_error = "no response"
@@ -124,6 +132,10 @@ print('Runtime DB role: no superuser, schema CREATE or migration-version UPDATE'
             assert status == 200
             tokens[name] = result["access_token"]
         reader, other = tokens["ci-reader"], tokens["ci-other"]
+        admin = tokens["ci-admin"]
+        assert http("/api/rag/status", token=admin)[1]["paid_ai_enabled"] is False
+        assert http("/api/ask", "POST", {"question": "CI question", "mode": "openai"}, admin)[0] == 403
+        assert http("/api/rag/index", "POST", {"provider": "openai", "confirm_cost": True}, admin)[0] == 403
         status, chapters = http("/api/chapters", token=reader)
         assert status == 200
         cid = chapters[0]["id"]
@@ -137,12 +149,18 @@ print('Runtime DB role: no superuser, schema CREATE or migration-version UPDATE'
         for name, role in [("ci-admin", "admin"), ("ci-reader", "reader")]:
             run(["exec", "-T", "frontend", "python", "-m", "scripts.smoke_authenticated",
                  "--username", name, "--role", role], input_text=ui_password + "\n")
-        run(["exec", "-T", "api", "python", "-m", "scripts.backup", "create", "/tmp/ci.dump"])
+        backup_cmd = ["--profile", "operations", "run", "--rm", "--no-deps", "backup"]
+        run(backup_cmd)
+        run(backup_cmd)  # A NEW container still sees the existing durable volume.
+        run(backup_cmd + ["python", "-m", "scripts.backup_job", "--directory", "/backups", "--check-only"])
+        archives = json.loads(run(backup_cmd + ["python", "-c",
+            "from pathlib import Path; import json; print(json.dumps(sorted(p.name for p in Path('/backups').glob('library-*.dump'))))"], capture=True))
+        assert len(archives) == 2
         run(["exec", "-T", "db", "psql", "-U", "library_owner", "-d", "library_operations_test", "-v", "ON_ERROR_STOP=1",
              "-c", "CREATE DATABASE library_restore_test OWNER library_owner;"])
         target_url = f"postgresql+psycopg://library_owner:{quote(password)}@db:5432/library_restore_test"
-        restore_code = "from scripts.backup import restore; from app.core.config import get_settings; import sys; restore(get_settings().database_url, sys.stdin.readline().strip(), '/tmp/ci.dump', confirmed=True); print('Real production-container backup/restore passed')"
-        run(["exec", "-T", "api", "python", "-c", restore_code], input_text=target_url + "\n")
+        restore_code = "from scripts.backup import restore; from app.core.config import get_settings; import sys; restore(get_settings().database_url, sys.stdin.readline().strip(), '/backups/" + archives[0] + "', confirmed=True); print('Real production-container durable backup/restore passed')"
+        run(backup_cmd + ["python", "-c", restore_code], input_text=target_url + "\n")
         result = run(["exec", "-T", "db", "psql", "-U", "library_owner", "-d", "library_restore_test", "-At",
                       "-c", "SELECT (SELECT count(*) FROM bookmarks), (SELECT count(*) FROM accounts), (SELECT count(*) FROM login_sessions);"], capture=True)
         assert result.strip() == "1|3|0"

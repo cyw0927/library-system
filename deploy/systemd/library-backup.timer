@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Library App backup (install only on approved host)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=library-backup.service
+
+[Install]
+WantedBy=timers.target
