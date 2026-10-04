@@ -41,7 +41,9 @@ $env:AUTH_REQUIRED = 'true'
 
 ## Linux Docker Compose 배포 구성
 
-`compose.production.yaml`은 **독립 구성**입니다. 개발용 `compose.yaml`과 합치지 마세요. DB/API/UI 호스트 포트는 없고 내부 네트워크만 사용합니다. API만 GitHub/선택적 AI에 outbound 접근. 비특권 앱 UID 10001, 읽기 전용 root filesystem, capability 제거, 상태 검사, DB 영속 volume, 자동 migration 단계를 포함합니다. TLS nginx도 UID 101로 실행합니다.
+`compose.production.yaml`은 **독립 구성**입니다. 개발용 `compose.yaml`과 합치지 마세요. DB/API/UI 호스트 포트는 없습니다. DB/UI는 내부 네트워크, API는 GitHub/선택적 AI를 위한 outbound 네트워크, nginx는 외부 TLS 수신용 edge 네트워크에 추가 연결합니다. 비특권 앱 UID 10001, 읽기 전용 root filesystem, capability 제거, 상태 검사, DB 영속 volume, 자동 migration 단계를 포함합니다. TLS nginx도 UID 101로 실행합니다.
+
+DB bootstrap 소유자 `library_owner` 자격증명은 DB/일회성 migrate에만 전달합니다. 일회성 bootstrap은 migration·pgvector 설치 후 별도 `library_runtime`을 생성/갱신하고 테이블 DML/sequence 사용만 부여합니다. API에는 runtime 연결만 전달하여 superuser·DB/role 생성·스키마 CREATE·migration version 변경을 막습니다. DB owner 자격증명을 API/UI에 mount하지 마세요. 기존 다른 앱의 역할과 충돌하지 않도록 앱 전용 PostgreSQL cluster 기준입니다.
 
 실제 환경의 Docker build/Compose/인증서/WebSocket은 아래 체크리스트와 CI smoke 결과로 검증한 뒤 공개합니다. 기본 프록시는 **127.0.0.1:8443**만 bind하며 외부 접근이 불가능합니다. 인터넷 공개에는 별도 도메인/방화벽/TLS 설정 승인이 필요합니다.
 
@@ -51,9 +53,11 @@ $env:AUTH_REQUIRED = 'true'
 
 | 파일 | 내용 / 접근 서비스 |
 |---|---|
-| `postgres_password` | 무작위 16자 이상 DB 비밀번호 / DB만 |
-| `database_url` | 같은 비밀번호의 `postgresql+psycopg://library_app:URL_ENCODED_PASSWORD@db:5432/library_app` / API·migration만 |
-| `github_token` | 원본 private repo contents **read-only** 토큰. 공개 repo면 빈 파일 / API·migration만 |
+| `postgres_password` | 무작위 16자 이상 owner DB 비밀번호 / DB만 |
+| `migration_database_url` | owner 비밀번호의 `postgresql+psycopg://library_owner:URL_ENCODED_PASSWORD@db:5432/library_app` / migration만 |
+| `runtime_password` | owner와 다른 무작위 16자 이상 runtime DB 비밀번호 / migration만 |
+| `database_url` | runtime 비밀번호의 `postgresql+psycopg://library_runtime:URL_ENCODED_PASSWORD@db:5432/library_app` / API만 |
+| `github_token` | 원본 private repo contents **read-only** 토큰. 공개 repo면 빈 파일 / API만 |
 | `streamlit_cookie_secret` | 무작위 32자 이상 / UI만 |
 
 `deploy/tls/fullchain.pem`, `deploy/tls/privkey.pem`: 도메인에 유효한 인증서/개인키. 인증서를 새로 발급하거나 업로드하는 행위는 이 구현이 수행하지 않습니다. 개발 self-signed 테스트와 실제 신뢰 인증서를 혼동하지 마세요.
@@ -68,7 +72,6 @@ docker compose -f compose.production.yaml up -d
 docker compose -f compose.production.yaml exec api python -m scripts.accounts create myadmin --role admin
 docker compose -f compose.production.yaml exec api python -m scripts.accounts create myreader --role reader
 docker compose -f compose.production.yaml exec api python -m scripts.initial_sync
-docker compose -f compose.production.yaml exec api python -m scripts.enable_pgvector
 docker compose -f compose.production.yaml ps
 ```
 
@@ -80,7 +83,7 @@ OpenAI secrets는 기본 구성에 넣지 않았습니다(자동 과금 방지).
 
 - [ ] 사용 권한/저작권 확인: 모든 초대 reader가 원문을 볼 수 있어도 되는지 확인.
 - [ ] production mode, 기존 ADMIN_TOKEN 제거, 강한 계정/DB 비밀번호, secrets 권한 확인.
-- [ ] DB 사용자 최소 권한: 최초 bootstrap/extension/migration은 소유자 권한으로 별도 수행하고, 런타임에는 필요 테이블 DML/sequence만 허용하는 별도 역할 권장. 제공 Compose의 library_app은 bootstrap용 DB owner이므로 공개 전에 분리.
+- [ ] DB 사용자 최소 권한: 제공 bootstrap으로 owner/runtime 분리 확인. API current_user=library_runtime, superuser=false, public schema CREATE=false, alembic_version UPDATE=false.
 - [ ] 실제 도메인의 신뢰 TLS, 인증서 갱신, nginx `-t`, WebSocket/로그인/로그아웃 확인.
 - [ ] 독립 운영 Host allowlist, API/UI/DB 포트가 외부에 직접 노출되지 않는지 확인.
 - [ ] 무인증 API 401, reader 관리자 동작 403, 다른 사용자 메모 404, 만료·폐기 세션 401.

@@ -6,13 +6,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: library_app
-      POSTGRES_USER: library_app
+      POSTGRES_USER: library_owner
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets: [postgres_password]
     volumes: ["production_pg:/var/lib/postgresql"]
     networks: [private]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U library_app -d library_app"]
+      test: ["CMD-SHELL", "pg_isready -U library_owner -d library_app"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -26,8 +26,11 @@ services:
       ALLOWED_HOSTS: '["api","localhost","127.0.0.1"]'
       GITHUB_USE_GIT_CREDENTIALS: "false"
       DATABASE_TIMEOUT_SECONDS: "30"
-    secrets: &backend_secrets [database_url, github_token]
-    command: ["python", "-m", "alembic", "upgrade", "head"]
+    secrets:
+      - source: migration_database_url
+        target: database_url
+      - runtime_password
+    command: ["python", "-m", "scripts.bootstrap_production"]
     depends_on:
       db: {condition: service_healthy}
     networks: [private]
@@ -39,7 +42,7 @@ services:
     image: library-app:operations
     restart: unless-stopped
     environment: *backend_env
-    secrets: *backend_secrets
+    secrets: [database_url, github_token]
     depends_on:
       migrate: {condition: service_completed_successfully}
     networks: [private, outbound]
@@ -102,6 +105,8 @@ networks:
 secrets:
   postgres_password: {file: ./deploy/secrets/postgres_password}
   database_url: {file: ./deploy/secrets/database_url}
+  migration_database_url: {file: ./deploy/secrets/migration_database_url}
+  runtime_password: {file: ./deploy/secrets/runtime_password}
   github_token: {file: ./deploy/secrets/github_token}
   streamlit_cookie_secret: {file: ./deploy/secrets/streamlit_cookie_secret}
   tls_certificate: {file: ./deploy/tls/fullchain.pem}

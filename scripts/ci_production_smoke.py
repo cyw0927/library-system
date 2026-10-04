@@ -20,9 +20,12 @@ def main():
     runtime.mkdir(parents=True, mode=0o700)
     project = "library-ci-" + uuid4().hex[:12]
     password = secrets.token_urlsafe(24)
+    runtime_password = secrets.token_urlsafe(24)
     ui_password = secrets.token_urlsafe(24)
     names = {"postgres_password": password,
-             "database_url": f"postgresql+psycopg://library_app:{quote(password)}@db:5432/library_operations_test",
+             "database_url": f"postgresql+psycopg://library_runtime:{quote(runtime_password)}@db:5432/library_operations_test",
+             "migration_database_url": f"postgresql+psycopg://library_owner:{quote(password)}@db:5432/library_operations_test",
+             "runtime_password": runtime_password,
              "github_token": "", "streamlit_cookie_secret": secrets.token_urlsafe(48)}
     for name, value in names.items():
         path = runtime / name
@@ -105,7 +108,16 @@ with get_session_factory()() as db:
     db.commit()
 """
         run(["exec", "-T", "api", "python", "-c", fixture])
-        run(["exec", "-T", "api", "python", "-m", "scripts.enable_pgvector"])
+        privilege_check = """from app.db.session import get_session_factory
+from sqlalchemy import text
+with get_session_factory()() as db:
+    assert db.scalar(text('SELECT current_user')) == 'library_runtime'
+    assert not db.scalar(text(\"SELECT rolsuper FROM pg_roles WHERE rolname=current_user\"))
+    assert not db.scalar(text(\"SELECT has_schema_privilege(current_user, 'public', 'CREATE')\"))
+    assert not db.scalar(text(\"SELECT has_table_privilege(current_user, 'public.alembic_version', 'UPDATE')\"))
+print('Runtime DB role: no superuser, schema CREATE or migration-version UPDATE')
+"""
+        run(["exec", "-T", "api", "python", "-c", privilege_check])
         tokens = {}
         for name in ["ci-admin", "ci-reader", "ci-other"]:
             status, result = http("/api/auth/login", "POST", {"username": name, "password": ui_password})
@@ -126,12 +138,12 @@ with get_session_factory()() as db:
             run(["exec", "-T", "frontend", "python", "-m", "scripts.smoke_authenticated",
                  "--username", name, "--role", role], input_text=ui_password + "\n")
         run(["exec", "-T", "api", "python", "-m", "scripts.backup", "create", "/tmp/ci.dump"])
-        run(["exec", "-T", "db", "psql", "-U", "library_app", "-d", "library_operations_test", "-v", "ON_ERROR_STOP=1",
-             "-c", "CREATE DATABASE library_restore_test OWNER library_app;"])
-        target_url = f"postgresql+psycopg://library_app:{quote(password)}@db:5432/library_restore_test"
+        run(["exec", "-T", "db", "psql", "-U", "library_owner", "-d", "library_operations_test", "-v", "ON_ERROR_STOP=1",
+             "-c", "CREATE DATABASE library_restore_test OWNER library_owner;"])
+        target_url = f"postgresql+psycopg://library_owner:{quote(password)}@db:5432/library_restore_test"
         restore_code = "from scripts.backup import restore; from app.core.config import get_settings; import sys; restore(get_settings().database_url, sys.stdin.readline().strip(), '/tmp/ci.dump', confirmed=True); print('Real production-container backup/restore passed')"
         run(["exec", "-T", "api", "python", "-c", restore_code], input_text=target_url + "\n")
-        result = run(["exec", "-T", "db", "psql", "-U", "library_app", "-d", "library_restore_test", "-At",
+        result = run(["exec", "-T", "db", "psql", "-U", "library_owner", "-d", "library_restore_test", "-At",
                       "-c", "SELECT (SELECT count(*) FROM bookmarks), (SELECT count(*) FROM accounts), (SELECT count(*) FROM login_sessions);"], capture=True)
         assert result.strip() == "1|3|0"
         print("Production smoke passed: non-root image, secret mounts, migrations, TLS, API isolation, 19 authenticated UI pages, pgvector, backup/restore")
