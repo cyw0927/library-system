@@ -11,6 +11,53 @@ st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
 PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Analysis", "Ask", "Sync"]
 
 
+def is_admin():
+    return not api.auth_enabled() or st.session_state.get("user", {}).get("role") == "admin"
+
+
+def clear_login():
+    for key in list(st.session_state):
+        del st.session_state[key]
+
+
+def login_gate():
+    if not api.auth_enabled():
+        return
+    if st.session_state.get("access_token"):
+        try:
+            st.session_state["user"] = api.get("/auth/me")
+        except api.APIError as exc:
+            if exc.status_code == 401:
+                clear_login()
+            else:
+                st.error(str(exc))
+                st.stop()
+    if not st.session_state.get("access_token"):
+        st.title("📚 내 도서관 로그인")
+        st.caption("초대받은 계정만 원문과 개인 독서 기록에 접근할 수 있습니다.")
+        with st.form("login", clear_on_submit=True):
+            name = st.text_input("아이디", max_chars=64)
+            password = st.text_input("비밀번호", type="password", max_chars=128)
+            submitted = st.form_submit_button("로그인")
+        if submitted:
+            try:
+                result = api.request("POST", "/auth/login", body={"username": name, "password": password}, token="")
+                st.session_state["access_token"] = result["access_token"]
+                st.session_state["user"] = result["user"]
+                st.rerun()
+            except api.APIError as exc:
+                st.error(str(exc))
+        st.stop()
+    st.sidebar.caption(f'{st.session_state["user"]["username"]} · {st.session_state["user"]["role"]}')
+    if st.sidebar.button("로그아웃"):
+        try:
+            api.post("/auth/logout")
+        except api.APIError:
+            st.warning("서버 연결 실패 시 세션은 최대 만료 시간까지 유지될 수 있습니다.")
+        clear_login()
+        st.rerun()
+
+
 def number_param(name, default=None):
     try:
         return int(st.query_params[name]) if name in st.query_params else default
@@ -143,7 +190,7 @@ def qa_page():
     st.caption("구조·Markdown·내비게이션·파일명·용어·중복을 검사합니다. 원본을 자동 수정하지 않습니다.")
     books = api.get("/books")
     book_id = st.selectbox("검사 작품", [None] + [b["id"] for b in books], format_func=lambda v: "전체" if v is None else next(b["title"] for b in books if b["id"] == v))
-    if st.button("QA 실행"):
+    if is_admin() and st.button("QA 실행"):
         with st.spinner("검사 중"):
             st.success(api.post("/qa/run", book_id=book_id))
     severity = st.selectbox("심각도", [None, "ERROR", "WARNING", "INFO"], format_func=lambda v: v or "전체")
@@ -159,13 +206,20 @@ def qa_page():
             if issue["detected_value"]:
                 st.write(f'발견: {issue["detected_value"]} → 기준: {issue["expected_value"] or "수동 검토"}')
             st.button("문제 위치 읽기", key=f'qa-read-{issue["id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": issue["chapter_id"], "paragraph": issue["paragraph_number"]})
-            if st.button("다시 열기" if resolved else "검토 완료", key=f'qa-resolve-{issue["id"]}'):
+            if is_admin() and st.button("다시 열기" if resolved else "검토 완료", key=f'qa-resolve-{issue["id"]}'):
                 api.request("PATCH", f'/qa/issues/{issue["id"]}', body={"resolved": not resolved})
                 st.rerun()
 
 
 def terms_page():
     st.title("표준 용어")
+    if not is_admin():
+        st.caption("용어 변경은 관리자만 가능합니다.")
+        for term in api.get("/terms"):
+            with st.expander(f'{term["canonical"]} · {term["category"]}'):
+                st.write(term["description"] or "")
+                st.write(" / ".join(term["variants"]))
+        return
     books = api.get("/books")
     categories = ["person", "place", "organization", "title", "ship", "concept", "house", "event"]
     with st.form("new-term"):
@@ -249,7 +303,7 @@ def ask_page():
     status = api.get("/rag/status")
     st.caption(f'임베딩 {status["embeddings"]:,}개 · pgvector {"사용 가능" if status["pgvector"] else "미설치 — 제한된 Python 벡터 검색"}')
     st.info("기본 모드는 관련 문단 발췌이며 AI 답변이 아닙니다. OpenAI 모드는 API 키·모델 설정이 필요하고 호출 비용이 발생합니다.")
-    mode = st.selectbox("답변 방식", ["extractive", "openai"], format_func=lambda v: "본문 발췌 (무료·로컬)" if v == "extractive" else "AI 답변 (OpenAI API)")
+    mode = st.selectbox("답변 방식", ["extractive", "openai"] if is_admin() else ["extractive"], format_func=lambda v: "본문 발췌 (무료·로컬)" if v == "extractive" else "AI 답변 (OpenAI API)")
     books = api.get("/books")
     book_id = st.selectbox("질문 범위", [None] + [b["id"] for b in books], format_func=lambda v: "전체" if v is None else next(b["title"] for b in books if b["id"] == v))
     question = st.text_area("질문", placeholder="아이언 뱅크와 관련한 본문을 찾아줘")
@@ -265,6 +319,8 @@ def ask_page():
                     st.write(source["quotes"])
                 st.link_button("원본 출처", source["source_url"])
                 st.button("문단 읽기", key=f'ask-read-{source["paragraph_id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": source["chapter_id"], "paragraph": source["paragraph_number"]})
+    if not is_admin():
+        return
     with st.expander("임베딩 색인 만들기"):
         provider = st.selectbox("임베딩 방식", ["local", "openai"], format_func=lambda v: "어휘 n-gram 벡터 (AI 의미 임베딩 아님)" if v == "local" else "OpenAI 의미 임베딩 (유료)")
         cost = st.checkbox("OpenAI 색인 비용에 동의합니다", key="embedding-cost") if provider == "openai" else False
@@ -288,10 +344,15 @@ def sync_menu_url():
     st.query_params["page"] = st.session_state["page_nav"]
 
 
+login_gate()
+pages = PAGES if is_admin() else [page for page in PAGES if page != "Sync"]
 requested = st.query_params.get("page", "Library")
-page = st.sidebar.radio("메뉴", PAGES, index=PAGES.index(requested) if requested in PAGES else 0, key="page_nav", on_change=sync_menu_url)
+page = st.sidebar.radio("메뉴", pages, index=pages.index(requested) if requested in pages else 0, key="page_nav", on_change=sync_menu_url)
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
      "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Ask": ask_page, "Sync": sync_page}[page]()
 except api.APIError as exc:
+    if api.auth_enabled() and exc.status_code == 401:
+        clear_login()
+        st.rerun()
     st.error(str(exc))

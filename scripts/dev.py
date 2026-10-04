@@ -20,7 +20,9 @@ def main():
     if not all(1024 <= port <= 65535 for port in (args.api_port, args.ui_port)) or args.api_port == args.ui_port:
         parser.error("Choose different ports between 1024 and 65535")
     root = Path(__file__).resolve().parents[1]
-    env = {**os.environ, "ADMIN_TOKEN": get_settings().admin_token or secrets.token_urlsafe(32),
+    settings = get_settings()
+    env = {**os.environ, "ADMIN_TOKEN": "" if settings.auth_enabled else settings.admin_token or secrets.token_urlsafe(32),
+           "APP_ENV": settings.app_env, "AUTH_REQUIRED": str(settings.auth_enabled).lower(),
            "LIBRARY_API_URL": f"http://127.0.0.1:{args.api_port}", "PYTHONUTF8": "1"}
     runtime = root / "work"
     runtime.mkdir(exist_ok=True)

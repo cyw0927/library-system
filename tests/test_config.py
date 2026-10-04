@@ -34,3 +34,23 @@ def test_database_credentials_are_not_in_settings_repr():
         database_url="postgresql+psycopg://reader:private-password@localhost/library_app",
     )
     assert "private-password" not in repr(settings)
+
+
+def production(**overrides):
+    options = dict(_env_file=None, app_env="production",
+                   database_url="postgresql+psycopg://app:long-random-db-password@db/library_app",
+                   allowed_hosts=["library.example.com", "api"], admin_token="", github_use_git_credentials=False)
+    return Settings(**{**options, **overrides})
+
+
+def test_production_always_requires_login():
+    assert production(auth_required=False).auth_enabled
+
+
+@pytest.mark.parametrize("overrides", [{"debug": True}, {"admin_token": "bypass"},
+    {"github_use_git_credentials": True}, {"allowed_hosts": ["*"]}, {"allowed_hosts": []},
+    {"database_url": "postgresql+psycopg://app@db/library_app"},
+    {"database_url": "postgresql+psycopg://app:postgres@db/library_app"}])
+def test_unsafe_production_settings_are_rejected(overrides):
+    with pytest.raises(ValidationError):
+        production(**overrides)
