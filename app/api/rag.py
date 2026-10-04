@@ -4,14 +4,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
-from app.api.dependencies import Admin, DB
+from app.api.dependencies import Admin, DB, Private
 from app.api.library import active_book
 from app.core.config import get_settings
 from app.db.models import Embedding
 from app.services.openai_provider import ProviderError
 from app.services.rag_service import ask, has_pgvector, index_paragraphs
 
-router = APIRouter(tags=["Grounded RAG"], dependencies=[Admin])
+router = APIRouter(tags=["Grounded RAG"])
 
 
 class Question(BaseModel):
@@ -36,7 +36,7 @@ class IndexRequest(BaseModel):
 
 
 @router.get("/rag/status")
-def rag_status(db: DB):
+def rag_status(db: DB, identity: Private):
     settings = get_settings()
     return dict(openai_configured=bool(settings.openai_api_key and settings.openai_model), pgvector=has_pgvector(db),
                 embeddings=db.scalar(select(func.count(Embedding.id))),
@@ -44,7 +44,7 @@ def rag_status(db: DB):
                 local_embedding="lexical token hashing, not semantic AI")
 
 
-@router.post("/rag/index")
+@router.post("/rag/index", dependencies=[Admin])
 def index(body: IndexRequest, db: DB):
     if body.book_id:
         active_book(db, body.book_id)
@@ -57,7 +57,9 @@ def index(body: IndexRequest, db: DB):
 
 
 @router.post("/ask")
-def ask_question(body: Question, db: DB):
+def ask_question(body: Question, db: DB, identity: Private):
+    if body.mode == "openai" and identity.role != "admin":
+        raise HTTPException(403, "Administrator permission required for paid AI calls")
     if body.book_id:
         active_book(db, body.book_id)
     try:

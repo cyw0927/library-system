@@ -18,3 +18,9 @@ work/
 *.egg-info/
 build/
 dist/
+backups/
+deploy/secrets/
+deploy/tls/
+.env.production
+*.dump
+*.dump.json

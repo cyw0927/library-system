@@ -4,6 +4,8 @@ GitHub `cyw0927/library`의 Markdown을 읽기 전용으로 수집하는 개인 
 
 ## 구현 상태
 
+운영 준비 기능(초대형 로그인, admin/reader 역할, 사용자별 독서 기록 격리, 안전한 DB 백업/복구, 독립 TLS Docker 구성)을 추가했습니다. [운영 가이드](deploy/OPERATIONS.md)를 먼저 읽으세요. **외부 배포/PR 병합은 수행하지 않습니다.** production은 모든 원문 API에 로그인을 강제하고 legacy ADMIN_TOKEN을 거부합니다.
+
 Phase 1–13의 MVP 코드를 순서대로 구현했습니다. 외부 서비스의 실제 운영 검증은 별도입니다.
 
 - [x] FastAPI, PostgreSQL, SQLAlchemy, Alembic, health, pytest/CI
@@ -38,14 +40,16 @@ Python 3.11+, FastAPI, PostgreSQL 18, SQLAlchemy 2, psycopg 3, Alembic, markdown
 
 ```text
 app/api/              # health, library, search, sync, QA/terms, reading, analysis, RAG
-app/db/models/        # 13개 도메인 테이블
+app/db/models/        # 15개 도메인 테이블 (계정·세션 포함)
 app/services/         # GitHub, parser, metadata, sync, QA, analysis, provider, RAG
 frontend/             # API만 사용하는 Streamlit reader
 scripts/              # discover, initial_sync, run_qa, rebuild_index, enable_pgvector, dev
-alembic/versions/     # 0001–0008; 0004 빈 revision은 후속 0005에서 보완
+alembic/versions/     # 0001–0009; 0004 빈 revision은 후속 0005에서 보완
 tests/                # SQLite API/unit + 실제 PostgreSQL + Streamlit AppTest
 .github/workflows/    # Python 3.11/3.12, PostgreSQL 18 + 실제 pgvector
-compose.yaml          # 선택적 localhost PostgreSQL + pgvector
+compose.yaml          # 선택적 localhost 개발 PostgreSQL + pgvector
+compose.production.yaml # 독립 운영 구성: TLS 프록시 / 내부 DB·API·UI
+deploy/OPERATIONS.md  # 계정, secrets, 배포 체크리스트, 백업·복구
 ```
 
 ## 설치 (PowerShell)
@@ -134,9 +138,11 @@ README는 장 수에 포함하지 않습니다. 번호 범위 폴더는 권으�
 .\.venv\Scripts\python.exe -m streamlit run frontend/streamlit_app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
-별도 실행 시 ADMIN_TOKEN을 두 프로세스에 동일하게 지정합니다. 없으면 private/mutating endpoint는 503, 잘못된 토큰은 401입니다. 요청 헤더는 `X-Admin-Token`입니다. 앱은 단일 사용자(local) 기준입니다. 인터넷 공개 시 토큰만으로 충분하지 않습니다. 도서 원문·GET API에도 접근 제어와 TLS를 추가해야 합니다. 기본 실행은 localhost로 제한합니다.
+development에서 AUTH_REQUIRED=false인 기존 localhost 모드에 한해 ADMIN_TOKEN을 두 프로세스에 동일하게 지정합니다. 없으면 private/mutating endpoint는 503, 잘못된 토큰은 401입니다. 요청 헤더는 `X-Admin-Token`입니다. 이 모드는 인터넷에 공개하지 마세요. 로그인 모드는 AUTH_REQUIRED=true로 API와 UI 모두 실행하고 계정을 생성합니다. production은 인증을 강제하며 공유 ADMIN_TOKEN을 허용하지 않습니다. 기본 실행은 localhost로 제한합니다.
 
 ## 주요 API
+
+로그인 모드에서 `/auth/login`(POST username/password) → `/auth/me`(GET), `/auth/logout`(POST)와 `Authorization: Bearer ...`를 사용합니다. 아래 원문/분석 API는 모두 로그인 필요, 관리자 작업은 admin 역할 필요, 개인 기록은 로그인한 계정 소유 데이터만 반환합니다. `/health`와 `/health/db`는 공개 상태 확인입니다.
 
 | 용도 | Endpoint |
 |---|---|
@@ -214,4 +220,4 @@ New-Item -ItemType Directory -Path $temp -Force | Out-Null
 
 ## 향후 개선
 
-다중 사용자 인증/권한, 번역 원문 접근 제어, native vector/HNSW, 형태소·NER, 긴 문단의 토큰 기반 chunking, 대규모 검색 품질·비용 평가, background job queue, 자동 백업. 원본 자동 편집/commit/push는 초기 앱 범위 밖입니다.
+작품별 세부 접근 정책, MFA/SSO, native vector/HNSW, 형태소·NER, 긴 문단의 토큰 기반 chunking, 대규모 검색 품질·비용 평가, background job queue, 운영 환경별 자동 백업 스케줄 등록. 원본 자동 편집/commit/push는 초기 앱 범위 밖입니다.

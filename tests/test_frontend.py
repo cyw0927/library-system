@@ -29,3 +29,35 @@ def test_menu_navigation_updates_url_for_reload():
         at = AppTest.from_file(str(SCRIPT)).run()
         at.sidebar.radio[0].set_value("Search").run()
         assert not at.exception and at.query_params["page"] == "Search"
+
+
+def test_login_gate_never_loads_originals_before_authentication(monkeypatch):
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    with patch("frontend.client.get") as get:
+        at = AppTest.from_file(str(SCRIPT)).run()
+        assert not at.exception and "로그인" in at.title[0].value
+        assert get.call_count == 0
+        assert len(at.text_input) == 2 and at.text_input[1].proto.type == 1  # PASSWORD enum
+
+
+def test_authenticated_reader_menu_has_no_admin_actions(monkeypatch):
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    def fake_get(path, **params):
+        return {"id": "reader", "username": "reader", "role": "reader"} if path == "/auth/me" else []
+    at = AppTest.from_file(str(SCRIPT))
+    at.session_state["access_token"] = "test-session"
+    with patch("frontend.client.get", side_effect=fake_get):
+        at.run()
+        assert not at.exception and "Sync" not in at.sidebar.radio[0].options
+        at.sidebar.radio[0].set_value("Terms").run()
+        assert not at.exception and not at.get("form")
+
+
+def test_expired_ui_session_returns_to_login(monkeypatch):
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    at = AppTest.from_file(str(SCRIPT))
+    at.session_state["access_token"] = "expired-session"
+    with patch("frontend.client.get", side_effect=APIError("Expired", 401)):
+        at.run()
+        assert not at.exception and "로그인" in at.title[0].value
+        assert "access_token" not in at.session_state
