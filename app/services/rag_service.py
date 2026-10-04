@@ -61,6 +61,8 @@ def embedding_spec(provider):
 
 
 def index_paragraphs(session, provider="local", book_id=None, limit=1000, client=None):
+    if provider == "openai" and not get_settings().paid_ai_enabled:
+        raise ProviderError("Paid AI is disabled; use provider=local")
     model, dimensions = embedding_spec(provider)
     active = chapter_query()
     if book_id is not None:
@@ -166,6 +168,8 @@ def retrieve(session, question, provider="local", book_id=None, volume_id=None, 
 
 def ask(session, question, mode="extractive", book_id=None, volume_id=None, client=None):
     settings = get_settings()
+    if mode == "openai" and not settings.paid_ai_enabled:
+        raise ProviderError("Paid AI is disabled; use mode=extractive")
     if mode == "openai" and client is None and (not settings.openai_api_key or not settings.openai_model):
         raise ProviderError("Set OPENAI_API_KEY and OPENAI_MODEL to enable AI answers")
     close = False

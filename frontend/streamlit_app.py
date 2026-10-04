@@ -302,8 +302,9 @@ def ask_page():
     st.title("Library에 질문하기")
     status = api.get("/rag/status")
     st.caption(f'임베딩 {status["embeddings"]:,}개 · pgvector {"사용 가능" if status["pgvector"] else "미설치 — 제한된 Python 벡터 검색"}')
-    st.info("기본 모드는 관련 문단 발췌이며 AI 답변이 아닙니다. OpenAI 모드는 API 키·모델 설정이 필요하고 호출 비용이 발생합니다.")
-    mode = st.selectbox("답변 방식", ["extractive", "openai"] if is_admin() else ["extractive"], format_func=lambda v: "본문 발췌 (무료·로컬)" if v == "extractive" else "AI 답변 (OpenAI API)")
+    paid = status.get("paid_ai_enabled", False) and is_admin()
+    st.info("본문 발췌는 무료·로컬 기능이며 AI 해석 답변이 아닙니다." + ("" if paid else " 유료 AI 호출은 비활성화되어 있습니다."))
+    mode = st.selectbox("답변 방식", ["extractive", "openai"] if paid else ["extractive"], format_func=lambda v: "본문 발췌 (무료·로컬)" if v == "extractive" else "AI 답변 (OpenAI API)")
     books = api.get("/books")
     book_id = st.selectbox("질문 범위", [None] + [b["id"] for b in books], format_func=lambda v: "전체" if v is None else next(b["title"] for b in books if b["id"] == v))
     question = st.text_area("질문", placeholder="아이언 뱅크와 관련한 본문을 찾아줘")
@@ -322,7 +323,7 @@ def ask_page():
     if not is_admin():
         return
     with st.expander("임베딩 색인 만들기"):
-        provider = st.selectbox("임베딩 방식", ["local", "openai"], format_func=lambda v: "어휘 n-gram 벡터 (AI 의미 임베딩 아님)" if v == "local" else "OpenAI 의미 임베딩 (유료)")
+        provider = st.selectbox("임베딩 방식", ["local", "openai"] if paid else ["local"], format_func=lambda v: "어휘 n-gram 벡터 (AI 의미 임베딩 아님)" if v == "local" else "OpenAI 의미 임베딩 (유료)")
         cost = st.checkbox("OpenAI 색인 비용에 동의합니다", key="embedding-cost") if provider == "openai" else False
         if st.button("최대 1,000개 변경 문단 색인", disabled=provider == "openai" and not cost):
             with st.spinner("색인 중"):

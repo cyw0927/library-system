@@ -3,6 +3,8 @@ import math
 
 import httpx
 
+from app.core.config import get_settings
+
 
 class ProviderError(RuntimeError):
     pass
@@ -18,6 +20,8 @@ class OpenAIProvider:
         self.client.close()
 
     def call(self, path, payload):
+        if not get_settings().paid_ai_enabled:
+            raise ProviderError("Paid AI is disabled; local search and excerpts remain available")
         if not self.key:
             raise ProviderError("OPENAI_API_KEY is not configured")
         try:
