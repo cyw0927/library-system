@@ -1,0 +1,3 @@
+# Windows application control blocked pandas 3.0.6 DLLs on the verified local PC.
+# pandas 2.2.3 passed imports, pip check, and all 10 Streamlit AppTest pages.
+pandas==2.2.3; sys_platform == "win32"
