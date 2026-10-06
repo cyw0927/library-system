@@ -16,6 +16,7 @@ Phase 1–13의 MVP 코드를 순서대로 구현했습니다. 외부 서비스�
 - [x] 책·권·장 API, 이전/다음 장과 commit 고정 출처
 - [x] 문단 ILIKE 검색, 작품/권/장/POV 필터, PostgreSQL FTS GIN 인덱스
 - [x] Streamlit Library / Book / Reader / Search, 글자 크기·줄 간격·폭·다크 모드
+- [x] 읽기 설정 자동 저장·복원: 화면 이동, 새 세션 및 재실행 후 유지; 로그인 모드는 사용자별 격리
 - [x] 비파괴 번역 QA, 용어·변형 관리, 검토 상태 보존
 - [x] 개인 독서 위치·읽은 장·북마크·메모, 원문 변경 경고
 - [x] 글자 수·장 길이·POV·등록 인물/용어·반복 어절 분석
@@ -40,11 +41,11 @@ Python 3.11+, FastAPI, PostgreSQL 18, SQLAlchemy 2, psycopg 3, Alembic, markdown
 
 ```text
 app/api/              # health, library, search, sync, QA/terms, reading, analysis, RAG
-app/db/models/        # 15개 도메인 테이블 (계정·세션 포함)
+app/db/models/        # 16개 도메인 테이블 (계정·세션 포함)
 app/services/         # GitHub, parser, metadata, sync, QA, analysis, provider, RAG
 frontend/             # API만 사용하는 Streamlit reader
 scripts/              # discover, initial_sync, run_qa, rebuild_index, enable_pgvector, dev
-alembic/versions/     # 0001–0009; 0004 빈 revision은 후속 0005에서 보완
+alembic/versions/     # 0001–0010; 0004 빈 revision은 후속 0005에서 보완
 tests/                # SQLite API/unit + 실제 PostgreSQL + Streamlit AppTest
 .github/workflows/    # Python 3.11/3.12, PostgreSQL 18 + 실제 pgvector
 compose.yaml          # 선택적 localhost 개발 PostgreSQL + pgvector
@@ -154,6 +155,7 @@ development에서 AUTH_REQUIRED=false인 기존 localhost 모드에 한해 ADMIN
 | 동기화(인증) | POST /sync/github, GET /sync/status |
 | QA | POST /qa/run(인증), GET /qa/issues, PATCH /qa/issues/{id}(인증) |
 | 용어 | GET /terms, POST /terms, PUT/DELETE /terms/{id}(변경은 인증) |
+| 읽기 설정(인증) | GET/PUT /reading/settings |
 | 독서 위치(인증) | GET/PUT /reading/progress |
 | 북마크·메모(인증) | GET/POST /bookmarks, PATCH/DELETE /bookmarks/{id} |
 | 분석 | GET /analysis/overview, /analysis/books/{id} |

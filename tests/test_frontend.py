@@ -68,6 +68,8 @@ def reader_library_get(path, **params):
     chapters = [{"id": n, "title": f"Chapter {n}", "paragraph_count": 1} for n in (101, 102)]
     if path == "/books":
         return [book]
+    if path == "/reading/settings":
+        return {"font_size": 18, "line_height": 1.8, "width": 850, "dark": False, "show_full_text": True}
     if path == "/books/1/volumes":
         return []
     if path == "/books/1/chapters":
@@ -122,3 +124,48 @@ def test_bottom_next_from_paragraph_result_opens_full_next_chapter():
         assert at.toggle(key="reader-full-102").value
         at.button(key="reader-bottom-contents").click().run()
         assert not at.exception and at.query_params == {"page": "Book", "book": "1"}
+
+
+def test_reader_preferences_survive_leaving_reader_and_new_session():
+    saved = dict(font_size=18, line_height=1.8, width=850, dark=False, show_full_text=True)
+    def get(path, **params):
+        return dict(saved) if path == "/reading/settings" else reader_library_get(path, **params)
+    def request(method, path, body):
+        assert method == "PUT" and path == "/reading/settings"
+        saved.update(body)
+        return dict(saved)
+    with patch("frontend.client.get", side_effect=get), patch("frontend.client.request", side_effect=request):
+        at = AppTest.from_file(str(SCRIPT))
+        at.query_params.update(page="Reader", chapter="101")
+        at.run()
+        for field, value in (("font_size", 24), ("line_height", 2.1), ("width", 1000)):
+            at.slider(key="reader-setting-" + field).set_value(value).run()
+        at.toggle(key="reader-setting-dark").set_value(True).run()
+        at.toggle(key="reader-full-101").set_value(False).run()
+        assert not at.exception and not at.warning
+        at.sidebar.radio[0].set_value("Book").run()
+        at.sidebar.radio[0].set_value("Reader").run()
+        assert not at.exception
+        assert at.slider(key="reader-setting-font_size").value == 24
+        assert at.toggle(key="reader-setting-dark").value is True
+        fresh = AppTest.from_file(str(SCRIPT))
+        fresh.query_params.update(page="Reader", chapter="102")
+        fresh.run()
+        assert not fresh.exception
+        assert fresh.slider(key="reader-setting-font_size").value == 24
+        assert fresh.slider(key="reader-setting-line_height").value == 2.1
+        assert fresh.slider(key="reader-setting-width").value == 1000
+        assert fresh.toggle(key="reader-setting-dark").value is True
+        assert fresh.toggle(key="reader-full-102").value is False
+
+
+def test_failed_preference_save_is_visible_and_keeps_current_display():
+    with patch("frontend.client.get", side_effect=reader_library_get), \
+         patch("frontend.client.request", side_effect=APIError("DB unavailable")):
+        at = AppTest.from_file(str(SCRIPT))
+        at.query_params.update(page="Reader", chapter="101")
+        at.run()
+        at.slider(key="reader-setting-font_size").set_value(24).run()
+        assert not at.exception
+        assert at.slider(key="reader-setting-font_size").value == 24
+        assert "DB unavailable" in at.warning[0].value

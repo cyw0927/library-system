@@ -40,7 +40,7 @@ def main():
                     if response.status_code != 200:
                         raise RuntimeError("Database unavailable; set DATABASE_URL and apply migrations")
                     break
-                except httpx.ConnectError:
+                except (httpx.ConnectError, httpx.ConnectTimeout):
                     time.sleep(0.1)
             else:
                 raise RuntimeError("Backend did not start")

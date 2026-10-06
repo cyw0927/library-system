@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import streamlit as st
 
 from frontend import client as api
+from frontend import reader_settings
 
 st.set_page_config(page_title="내 도서관", page_icon="📚", layout="wide")
 PAGES = ["Library", "Book", "Reader", "Search", "QA", "Terms", "Reading", "Analysis", "Ask", "Sync"]
@@ -141,16 +142,22 @@ def reader_page():
     st.title(chapter["title"])
     st.link_button("GitHub 원본", chapter["source_url"])
     chapter_navigation(chapter, "top")
-    font_size = st.sidebar.slider("글자 크기", 14, 30, 18)
-    line_height = st.sidebar.slider("줄 간격", 1.2, 2.4, 1.8)
-    width = st.sidebar.slider("본문 폭", 500, 1200, 850)
-    dark = st.sidebar.toggle("다크 모드", False)
+    preferences = reader_settings.load()
+    font_size = st.sidebar.slider("글자 크기", 14, 30, key="reader-setting-font_size", on_change=reader_settings.save)
+    line_height = st.sidebar.slider("줄 간격", 1.2, 2.4, key="reader-setting-line_height", on_change=reader_settings.save)
+    width = st.sidebar.slider("본문 폭", 500, 1200, key="reader-setting-width", on_change=reader_settings.save)
+    dark = st.sidebar.toggle("다크 모드", key="reader-setting-dark", on_change=reader_settings.save)
+    st.sidebar.caption("읽기 설정은 자동 저장됩니다.")
+    if st.session_state.get("reader_settings_error"):
+        st.sidebar.warning("설정을 저장하지 못했습니다. " + st.session_state["reader_settings_error"])
     # Only fixed CSS and bounded numeric values enter unsafe HTML, never book text.
     colors = "background:#171923;color:#edf2f7;" if dark else ""
     st.markdown(f'<style>.stApp{{{colors}}} .block-container{{max-width:{width}px}} [data-testid="stMarkdown"] p{{font-size:{font_size}px;line-height:{line_height}}}</style>', unsafe_allow_html=True)
     target = number_param("paragraph", 1)
     paragraphs = chapter["paragraphs"]
-    show_all = st.toggle("전체 본문 보기", value="paragraph" not in st.query_params, key=f"reader-full-{chapter_id}")
+    show_all = st.toggle("전체 본문 보기", value=preferences["show_full_text"] and "paragraph" not in st.query_params,
+                         key=f"reader-full-{chapter_id}", on_change=reader_settings.save,
+                         kwargs={"full_key": f"reader-full-{chapter_id}"})
     if show_all:
         st.markdown(chapter["markdown_content"])
     else:

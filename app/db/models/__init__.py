@@ -10,5 +10,6 @@ from app.db.models.qa import Term, TermVariant, QAIssue
 from app.db.models.reading import ReadingProgress, Bookmark
 from app.db.models.embedding import Embedding
 from app.db.models.account import Account, LoginSession
+from app.db.models.reader_settings import ReaderSettings
 
-__all__ = ["Book", "Volume", "Chapter", "Paragraph", "SyncState", "SourceDocument", "SyncRun", "Term", "TermVariant", "QAIssue", "ReadingProgress", "Bookmark", "Embedding", "Account", "LoginSession"]
+__all__ = ["Book", "Volume", "Chapter", "Paragraph", "SyncState", "SourceDocument", "SyncRun", "Term", "TermVariant", "QAIssue", "ReadingProgress", "Bookmark", "Embedding", "Account", "LoginSession", "ReaderSettings"]

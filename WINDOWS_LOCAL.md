@@ -90,9 +90,13 @@ try { ..\.venv\Scripts\python.exe -m pytest ..\tests -ra }
 finally { Pop-Location }
 ```
 
-2026-10-06 검증 결과: 115 passed, 33 skipped.
+2026-10-06 검증 결과: 121 passed, 33 skipped.
 Skip은 별도 PostgreSQL 테스트 DB 미설정에 따른 것입니다.
 실제 DB 마이그레이션, HTTP health, 도서 본문, 일반 검색, FTS,
 무료 본문 발췌 및 Streamlit 10개 화면은 별도로 검증했습니다.
 동기화 결과는 8권, 20권 구성(Volume), 1,265장, 95,536문단이며 오류는 0건입니다.
 원문 QA의 검토 항목 44건은 자동 수정하지 않았습니다.
+
+글자 크기·줄 간격·본문 폭·다크 모드·전체 본문 보기는 변경 시 DB에 자동 저장됩니다.
+앱을 다시 열어도 복원되며, localhost 기본 모드는 공용 local 설정, 로그인 모드는 사용자별 설정입니다.
+설정 저장이 실패하면 화면에 경고를 표시합니다.

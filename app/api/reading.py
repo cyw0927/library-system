@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from app.api.dependencies import DB, Private, columns
 from app.api.library import active_chapter
-from app.db.models import Bookmark, Chapter, Paragraph, ReadingProgress
+from app.db.models import Bookmark, Chapter, Paragraph, ReadingProgress, ReaderSettings
 
 router = APIRouter(tags=["Private reading records"])
 
@@ -104,3 +104,31 @@ def delete_bookmark(bookmark_id: int, db: DB, identity: Private):
         raise HTTPException(404, "Bookmark not found")
     db.delete(record)
     db.commit()
+
+
+class ReaderPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    font_size: int = Field(18, ge=14, le=30)
+    line_height: float = Field(1.8, ge=1.2, le=2.4)
+    width: int = Field(850, ge=500, le=1200)
+    dark: bool = False
+    show_full_text: bool = True
+
+
+@router.get("/reading/settings", response_model=ReaderPreferences)
+def reader_settings(db: DB, identity: Private):
+    record = db.get(ReaderSettings, identity.id)
+    return ReaderPreferences(**record.preferences) if record else ReaderPreferences()
+
+
+@router.put("/reading/settings", response_model=ReaderPreferences)
+def save_reader_settings(body: ReaderPreferences, db: DB, identity: Private):
+    # Upsert the caller's row atomically, including concurrent first saves in two tabs.
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+    statement = insert(ReaderSettings).values(user_id=identity.id, preferences=body.model_dump())
+    db.execute(statement.on_conflict_do_update(index_elements=[ReaderSettings.user_id],
+               set_={"preferences": body.model_dump(), "updated_at": func.now()}))
+    db.commit()
+    return body
