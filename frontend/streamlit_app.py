@@ -66,8 +66,7 @@ def number_param(name, default=None):
 
 
 def navigate(page, **params):
-    st.query_params.clear()
-    st.query_params.update(page=page, **{k: str(v) for k, v in params.items() if v is not None})
+    st.query_params.from_dict({"page": page, **{k: str(v) for k, v in params.items() if v is not None}})
     st.session_state["page_nav"] = page
 
 
@@ -118,6 +117,20 @@ def book_page():
         right.button("읽기", key=f'chapter-{chapter["id"]}', on_click=navigate, args=("Reader",), kwargs={"chapter": chapter["id"]})
 
 
+def chapter_navigation(chapter, location):
+    previous, contents, following = st.columns(3)
+    for column, direction, label in ((previous, "previous", "← 이전 장"),
+                                     (following, "next", "다음 장 →")):
+        neighbor = chapter[direction]
+        column.button(label, key=f"reader-{location}-{direction}", disabled=neighbor is None,
+                      on_click=navigate, args=("Reader",),
+                      kwargs={"book": chapter["book_id"], "chapter": neighbor["id"] if neighbor else None})
+    contents.button("목차", key=f"reader-{location}-contents", on_click=navigate,
+                    args=("Book",), kwargs={"book": chapter["book_id"]})
+    if location == "bottom" and not chapter["next"]:
+        st.caption("이 작품의 마지막 장입니다.")
+
+
 def reader_page():
     chapter_id = number_param("chapter")
     if chapter_id is None:
@@ -127,12 +140,7 @@ def reader_page():
     st.caption(chapter["book"]["title"] + (" / " + chapter["volume"]["title"] if chapter["volume"] else ""))
     st.title(chapter["title"])
     st.link_button("GitHub 원본", chapter["source_url"])
-    previous, contents, following = st.columns(3)
-    if chapter["previous"]:
-        previous.button("← 이전 장", on_click=navigate, args=("Reader",), kwargs={"chapter": chapter["previous"]["id"]})
-    contents.button("목차", on_click=navigate, args=("Book",), kwargs={"book": chapter["book_id"]})
-    if chapter["next"]:
-        following.button("다음 장 →", on_click=navigate, args=("Reader",), kwargs={"chapter": chapter["next"]["id"]})
+    chapter_navigation(chapter, "top")
     font_size = st.sidebar.slider("글자 크기", 14, 30, 18)
     line_height = st.sidebar.slider("줄 간격", 1.2, 2.4, 1.8)
     width = st.sidebar.slider("본문 폭", 500, 1200, 850)
@@ -142,7 +150,7 @@ def reader_page():
     st.markdown(f'<style>.stApp{{{colors}}} .block-container{{max-width:{width}px}} [data-testid="stMarkdown"] p{{font-size:{font_size}px;line-height:{line_height}}}</style>', unsafe_allow_html=True)
     target = number_param("paragraph", 1)
     paragraphs = chapter["paragraphs"]
-    show_all = st.toggle("전체 본문 보기", value="paragraph" not in st.query_params)
+    show_all = st.toggle("전체 본문 보기", value="paragraph" not in st.query_params, key=f"reader-full-{chapter_id}")
     if show_all:
         st.markdown(chapter["markdown_content"])
     else:
@@ -153,6 +161,7 @@ def reader_page():
             st.caption(f'§{paragraph["paragraph_number"]}')
             st.markdown(paragraph["markdown_content"])
     st.divider()
+    chapter_navigation(chapter, "bottom")
     with st.expander("독서 위치 · 북마크 · 메모"):
         position = st.number_input("저장할 문단", min_value=1, max_value=max(1, len(paragraphs)), value=min(max(target, 1), max(1, len(paragraphs))), key=f'position-{chapter_id}')
         completed = st.checkbox("이 장 읽기 완료", key=f'completed-{chapter_id}')
@@ -347,7 +356,10 @@ def sync_menu_url():
 login_gate()
 pages = PAGES if is_admin() else [page for page in PAGES if page != "Sync"]
 requested = st.query_params.get("page", "Library")
-page = st.sidebar.radio("메뉴", pages, index=pages.index(requested) if requested in pages else 0, key="page_nav", on_change=sync_menu_url)
+# Browser back/forward changes the URL; the keyed menu must follow that route.
+selected_page = requested if requested in pages else "Library"
+st.session_state["page_nav"] = selected_page
+page = st.sidebar.radio("메뉴", pages, key="page_nav", on_change=sync_menu_url)
 try:
     {"Library": library_page, "Book": book_page, "Reader": reader_page, "Search": search_page,
      "QA": qa_page, "Terms": terms_page, "Reading": reading_page, "Analysis": analysis_page, "Ask": ask_page, "Sync": sync_page}[page]()

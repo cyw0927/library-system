@@ -61,3 +61,64 @@ def test_expired_ui_session_returns_to_login(monkeypatch):
         at.run()
         assert not at.exception and "로그인" in at.title[0].value
         assert "access_token" not in at.session_state
+
+
+def reader_library_get(path, **params):
+    book = {"id": 1, "title": "Test book", "volume_count": 0, "chapter_count": 2}
+    chapters = [{"id": n, "title": f"Chapter {n}", "paragraph_count": 1} for n in (101, 102)]
+    if path == "/books":
+        return [book]
+    if path == "/books/1/volumes":
+        return []
+    if path == "/books/1/chapters":
+        return chapters
+    if path in ("/chapters/101", "/chapters/102"):
+        chapter_id = int(path.rsplit("/", 1)[1])
+        return {"id": chapter_id, "book_id": 1, "book": book, "volume": None,
+                "title": f"Chapter {chapter_id}", "source_url": "https://github.com/example/book",
+                "previous": {"id": 101} if chapter_id == 102 else None,
+                "next": {"id": 102} if chapter_id == 101 else None,
+                "markdown_content": "Actual chapter text",
+                "paragraphs": [{"paragraph_number": 1, "markdown_content": "Actual chapter text"}]}
+    raise AssertionError(f"Unexpected API call: {path}")
+
+
+def test_reader_bottom_next_and_browser_history_restore_routes():
+    with patch("frontend.client.get", side_effect=reader_library_get):
+        at = AppTest.from_file(str(SCRIPT)).run()
+        at.button(key="book-1").click().run()
+        book_route = dict(at.query_params)
+        at.button(key="chapter-101").click().run()
+        reader_route = dict(at.query_params)
+        assert not at.exception
+        assert at.button(key="reader-bottom-previous").disabled
+        at.button(key="reader-bottom-next").click().run()
+        next_route = dict(at.query_params)
+        assert not at.exception and at.title[0].value == "Chapter 102"
+        assert at.query_params["book"] == "1"
+        assert at.button(key="reader-bottom-next").disabled
+
+        # Simulate the URLs delivered by browser Back and Forward in one session.
+        for route, menu, title in ((reader_route, "Reader", "Chapter 101"),
+                                   (book_route, "Book", "작품 탐색"),
+                                   (next_route, "Reader", "Chapter 102")):
+            at.query_params.clear()
+            at.query_params.update(route)
+            at.run()
+            assert not at.exception
+            assert at.sidebar.radio[0].value == menu
+            assert at.title[0].value == title
+
+
+def test_bottom_next_from_paragraph_result_opens_full_next_chapter():
+    with patch("frontend.client.get", side_effect=reader_library_get):
+        at = AppTest.from_file(str(SCRIPT))
+        at.query_params.update(page="Reader", chapter="101", paragraph="1")
+        at.run()
+        assert not at.exception and not at.toggle(key="reader-full-101").value
+        at.button(key="reader-bottom-next").click().run()
+        assert not at.exception and "paragraph" not in at.query_params
+        assert at.title[0].value == "Chapter 102"
+        assert at.toggle(key="reader-full-102").value
+        at.button(key="reader-bottom-contents").click().run()
+        assert not at.exception and at.query_params == {"page": "Book", "book": "1"}
